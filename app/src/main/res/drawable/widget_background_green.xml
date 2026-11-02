@@ -1,0 +1,1 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="#EDF7F1" /><corners android:radius="@dimen/widget_outer_radius" /></shape>

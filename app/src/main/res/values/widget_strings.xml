@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">今日课表</string>
+    <string name="widget_brand" translatable="false">NUIST Pocket</string>
+    <string name="widget_description">查看今天的课程时间、地点与教师，使用本机已保存的课表。</string>
+    <string name="widget_refresh">刷新</string>
+    <string name="widget_refresh_description">从本机缓存刷新今日课表</string>
+    <string name="widget_initial_hint">登录或导入课表后，在这里查看今天的课程</string>
+</resources>

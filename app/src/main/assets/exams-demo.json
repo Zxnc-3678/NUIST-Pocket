@@ -1,0 +1,49 @@
+{
+  "code": "0",
+  "datas": {
+    "cxxsksap": {
+      "extParams": {
+        "code": 1,
+        "msg": "查询成功"
+      },
+      "totalSize": -1,
+      "rows": [
+        {
+          "KSRWID": "demo-exam-1",
+          "KCM": "示例课程乙",
+          "KSMC": "示例考试安排",
+          "KSRQ": "2026-11-20",
+          "KSKSSJ": "13:30",
+          "KSJSSJ": "15:30",
+          "JASMC": "示例教学楼A101",
+          "BZ": "此为虚构演示记录，请以学校公布的安排为准。"
+        },
+        {
+          "KSRWID": "demo-exam-2",
+          "KCM": "示例课程丙",
+          "KSMC": "示例考试安排",
+          "KSRQ": "2026-12-10",
+          "KSKSSJ": "10:00",
+          "KSJSSJ": "12:00",
+          "JASMC": "示例教学楼B203"
+        },
+        {
+          "KSRWID": "demo-exam-3",
+          "KCM": "示例课程丁",
+          "KSMC": "示例考试安排",
+          "SFAPSJ": "0",
+          "BZ": "演示未安排时间的状态。"
+        },
+        {
+          "KSRWID": "demo-exam-4",
+          "KCM": "示例课程甲",
+          "KSMC": "示例考试安排",
+          "KSRQ": "2026-09-10",
+          "KSKSSJ": "15:45",
+          "KSJSSJ": "17:45",
+          "JASMC": "示例教学楼A102"
+        }
+      ]
+    }
+  }
+}

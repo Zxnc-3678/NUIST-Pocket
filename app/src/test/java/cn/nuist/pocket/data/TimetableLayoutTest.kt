@@ -29,4 +29,29 @@ class TimetableLayoutTest {
         assertEquals(136, timetableHeight(1, 2))
         assertEquals(158, timetableHeight(4, 5))
     }
+    @Test fun courseAcrossLunchRendersTwiceWithOriginalDetails() {
+        val original = course("跨午休课程", 3, 6)
+        val blocks = timetableBlocks(listOf(original), 1, 8, true)
+        assertEquals(listOf(3 to 4, 5 to 6), blocks.map { it.first to it.last })
+        assertEquals(22, timetableTop(blocks[1].first) -
+            (timetableTop(blocks[0].first) + timetableHeight(blocks[0].first, blocks[0].last)))
+        blocks.forEach { assertEquals(original, it.groups.single().course) }
+    }
+    @Test fun courseAcrossBothBreaksLeavesBothBreakRowsClear() {
+        val blocks = timetableBlocks(listOf(course("全天课程", 3, 10)), 1, 8, true)
+        assertEquals(listOf(3 to 4, 5 to 8, 9 to 10), blocks.map { it.first to it.last })
+    }
+    @Test fun overlappingAlternativesStayInTheirOwnSessions() {
+        val blocks = timetableBlocks(listOf(course("主课", 3, 6), course("上午备选", 3, 4, 7),
+            course("下午备选", 5, 6, 7)), 1, 8, true)
+        assertEquals(listOf("主课", "上午备选"), blocks[0].groups.map { it.course.name })
+        assertEquals(listOf("主课", "下午备选"), blocks[1].groups.map { it.course.name })
+        assertEquals(listOf(1, 1), timetableBlocks(listOf(course("主课", 3, 6),
+            course("上午备选", 3, 4, 7)), 1, 8, false).map { it.groups.size })
+    }
+    @Test fun separateMorningAndAfternoonRowsRemainSeparate() {
+        val blocks = timetableBlocks(listOf(course("同名课", 3, 4), course("同名课", 5, 6)), 1, 8, true)
+        assertEquals(listOf(3 to 4, 5 to 6), blocks.map { it.first to it.last })
+        assertTrue(blocks.all { it.groups.size == 1 })
+    }
 }

@@ -7,17 +7,22 @@ fun timetableBlocks(courses: List<CourseSlot>, day: Int, week: Int, showInactive
     val groups = overviewGroups(courses).filter {
         it.course.weekday == day && (showInactive || it.activePlacements(week).isNotEmpty())
     }.sortedWith(compareBy<OverviewCourseGroup> { it.course.firstPeriod }.thenBy { it.course.lastPeriod })
-    val blocks = mutableListOf<TimetableBlock>()
-    for (group in groups) {
-        val first = group.course.firstPeriod!!
-        val last = group.course.lastPeriod!!
+    // Split the visual intervals before grouping overlaps so a morning alternative
+    // cannot stretch into the afternoon or appear in its details.
+    return listOf(1..4, 5..8, 9..Int.MAX_VALUE).flatMap { session ->
+      val blocks = mutableListOf<TimetableBlock>()
+      for (group in groups) {
+        val first = maxOf(group.course.firstPeriod!!, session.first)
+        val last = minOf(group.course.lastPeriod!!, session.last)
+        if (first > last) continue
         val previous = blocks.lastOrNull()
         if (previous != null && first <= previous.last) {
             blocks[blocks.lastIndex] = previous.copy(last = maxOf(previous.last, last), groups = previous.groups + group)
         } else blocks += TimetableBlock(first, last, listOf(group))
-    }
-    return blocks.map { block -> block.copy(groups = block.groups.sortedWith(
+      }
+      blocks.map { block -> block.copy(groups = block.groups.sortedWith(
         compareBy<OverviewCourseGroup> { it.activePlacements(week).isEmpty() }.thenBy { it.course.firstPeriod }.thenBy { it.course.name })) }
+    }
 }
 
 fun timetableTop(period: Int, periodHeight: Int = 68): Int =

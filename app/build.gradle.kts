@@ -14,8 +14,8 @@ android {
         applicationId = "cn.nuist.pocket"
         minSdk = 30
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.9.0"
+        versionCode = 36
+        versionName = "0.9.1"
         testInstrumentationRunner = "cn.nuist.pocket.WidgetLayoutInstrumentation"
     }
     buildFeatures { compose = true; buildConfig = true }

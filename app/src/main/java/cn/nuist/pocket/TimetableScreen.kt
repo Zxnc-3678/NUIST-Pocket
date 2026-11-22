@@ -278,7 +278,8 @@ internal fun TimetableScreen(courses: List<CourseSlot>, periods: List<Period>, s
             val footer = locationHeight + if (block.groups.size > 1) countHeight + 4 else 0f
             block.groups.maxOf { group ->
                 val nameHeight = with(density) { measurer.measure(group.course.name, nameStyle, constraints = Constraints(maxWidth = width)).size.height.toDp().value }
-                timetableRequiredPeriodHeight(group.course.firstPeriod!!, group.course.lastPeriod!!, nameHeight + footer + 20)
+                timetableRequiredPeriodHeight(maxOf(block.first, group.course.firstPeriod!!),
+                    minOf(block.last, group.course.lastPeriod!!), nameHeight + footer + 20)
             }
         } ?: 68
     }

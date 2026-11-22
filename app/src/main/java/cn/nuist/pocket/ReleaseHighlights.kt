@@ -20,10 +20,9 @@ internal fun ReleaseHighlights(onDismiss: () -> Unit) {
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("• 支持跟随系统深色模式，统一页面、课表、设置和弹窗配色。")
-                Text("• 新增临时停课：在日程日期右侧菜单设置，课程展示和相关提醒同步调整。")
-                Text("• 支持二维码与文件分享课表，生成后30分钟内可接收；收到的课表可独立查看、备注和删除。")
-                Text("• 整理分享界面与页面切换动效，精简首次使用和帮助说明。")
+                Text("• 修复课程卡片跨过午休、晚休的问题，同一门跨时段课程会分段显示。")
+                Text("• 重叠课程按上午、下午、晚间分别归组，其他安排与详情入口更准确。")
+                Text("• 调整分段卡片的文字空间，继续完整显示课程名称。")
                 Text("以后可在“设置 → 本次更新”重看。", style = MaterialTheme.typography.bodySmall)
             }
         },

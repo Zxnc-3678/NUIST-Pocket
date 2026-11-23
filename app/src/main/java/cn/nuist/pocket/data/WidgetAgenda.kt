@@ -47,6 +47,9 @@ fun widgetAgenda(schedule: WidgetSchedule, now: LocalDateTime): WidgetAgenda {
 data class OverviewDay(val active: List<OverviewCourseGroup>, val inactive: List<OverviewCourseGroup>)
 
 fun overviewDay(groups: List<OverviewCourseGroup>, week: Int, day: Int): OverviewDay {
-    val slots = groups.filter { it.course.weekday == day }
+    val slots = groups.filter { it.course.weekday == day }.mapNotNull { group ->
+        val placements = group.placements.filter { it.visibleInTimetableWeek(week) }
+        if (placements.isEmpty()) null else OverviewCourseGroup(placements)
+    }
     return OverviewDay(slots.filter { week in it.weeks }, slots.filter { week !in it.weeks })
 }

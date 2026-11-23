@@ -60,12 +60,12 @@ class SchoolDataTest {
     }
     @Test fun roomSamplesDoNotClaimAllPagesOrWholeBlockFree() {
         val page = SchoolParser.classrooms(asset("rooms-demo.json"))
-        assertEquals(6, page.total); assertEquals(6, page.rows.size); assertTrue(page.complete)
-        val room = page.rows.single { it.name == "示例教学楼A102" }
+        assertEquals(56, page.total); assertEquals(10, page.rows.size); assertFalse(page.complete)
+        val room = page.rows.single { it.name == "明德N108" }
         assertEquals(Occupancy.OCCUPIED, room.status(7))
         assertEquals(Occupancy.NO_MARK, room.status(8))
         assertEquals(Occupancy.OCCUPIED, room.status(7..8))
-        assertEquals(Occupancy.UNKNOWN, page.rows.single { it.name == "示例教学楼A101" }.status(1..2))
+        assertEquals(Occupancy.UNKNOWN, page.rows.single { it.name == "明德N005" }.status(1..2))
     }
     @Test fun negativeTotalSizeDoesNotHideExamRows() {
         assertEquals(4, SchoolParser.exams(asset("exams-demo.json")).size)
@@ -118,4 +118,3 @@ class SchoolDataTest {
             .jsonObject.getValue("*order").jsonPrimitive.content)
     }
 }
-

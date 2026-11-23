@@ -109,5 +109,5 @@ fun eveningMessage(snapshot: WidgetSchedule, tomorrow: LocalDate): EveningMessag
         else -> classGreetings
     }
     val greeting = greetings.onDate(tomorrow)
-    return EveningMessage("$label · ${courses.size}段课程", "${first.name} · ${first.room.ifBlank { "地点待定" }}\n$greeting$suffix", tomorrow, greeting)
+    return EveningMessage("$label · ${courses.size}段课程", "${first.displayName} · ${first.room.ifBlank { "地点待定" }}\n$greeting$suffix", tomorrow, greeting)
 }

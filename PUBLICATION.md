@@ -1,8 +1,8 @@
 # GitHub 发布副本说明
 
-本目录从当前 NUIST Pocket 0.9.1 项目重新整理，包含 Android 应用源码、Gradle Wrapper、构建脚本、许可文件和当前用户说明。
+本目录为 NUIST Pocket 1.0.0 的公开源码，包含 Android 应用源码、Gradle Wrapper、构建脚本、许可文件和当前用户说明。
 
-发布副本不包含 Android Studio 和 Gradle 缓存、本机 SDK 路径、构建产物、APK、签名文件、调试日志、原始宣传素材、视频工程或设备数据。演示课程、考试和教室数据均为虚构示例；`app/src/main/assets/rooms-demo.json` 已在此副本中替换为合成数据。原项目目录未修改。
+发布副本不包含 Android Studio 和 Gradle 缓存、本机 SDK 路径、构建产物、APK、签名文件、调试日志、原始宣传素材、视频工程或设备数据。公开源码和 GitHub 安装包均使用合成的演示课程、考试和教室数据。
 
 ## 发布前提醒
 

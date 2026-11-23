@@ -31,10 +31,10 @@ import java.time.format.DateTimeFormatter
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.size(20.dp))
-            Text("第${week}周", fontSize = fontSize, fontWeight = FontWeight.Bold)
+            Text("第${week}周", fontSize = fontSize, lineHeight = (fontSize.value * 1.4f).sp, fontWeight = FontWeight.SemiBold, style = tabularTextStyle())
             Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(20.dp))
         }
-        subtitle?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        subtitle?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, style = tabularTextStyle()) }
     }
 }
 
@@ -47,15 +47,15 @@ import java.time.format.DateTimeFormatter
     val cellWidth = (76 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
     AlertDialog(onDismissRequest = onDismiss, title = { Text("选择教学周") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(semester.code, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("第${selectedWeek}周 · ${semester.dateOf(selectedWeek, 1).format(dateFormat)} — ${semester.dateOf(selectedWeek, 7).format(dateFormat)}")
-            if (currentWeek in 1..maxWeek) Text("本周是第${currentWeek}周，点选周次即可跳转。", fontSize = 12.sp)
+            Text(semester.code, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, style = tabularTextStyle())
+            Text("第${selectedWeek}周 · ${semester.dateOf(selectedWeek, 1).format(dateFormat)} — ${semester.dateOf(selectedWeek, 7).format(dateFormat)}", style = tabularTextStyle())
+            if (currentWeek in 1..maxWeek) Text("本周是第${currentWeek}周，点选周次即可跳转。", fontSize = 12.sp, style = tabularTextStyle())
             else Text("点选周次即可跳转。", fontSize = 12.sp)
             LazyVerticalGrid(columns = GridCells.Adaptive(cellWidth), state = gridState,
                 modifier = Modifier.fillMaxWidth().heightIn(max = if (extraContent == null) 280.dp else 180.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items((1..maxWeek).toList(), key = { it }) { candidate ->
-                    FilterChip(selected = candidate == selectedWeek, onClick = { onSelect(candidate) },
-                        label = { Text("第${candidate}周") }, modifier = Modifier.fillMaxWidth())
+                    FilterChip(selected = candidate == selectedWeek, shape = PocketShapes.Compact, onClick = { onSelect(candidate) },
+                        label = { Text("第${candidate}周", style = tabularTextStyle()) }, modifier = Modifier.fillMaxWidth())
                 }
             }
             extraContent?.invoke(this)

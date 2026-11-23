@@ -51,8 +51,9 @@ fun courseWeeksSummary(weeks: Set<Int>): String {
 /** Fragmented rows for the same placement become one card; different locations stay separate. */
 fun overviewCourses(courses: List<CourseSlot>): List<CourseSlot> = courses.filter { it.arranged }
     .groupBy { listOf(it.code, it.name, it.teacher, it.room, it.weekday, it.firstPeriod,
-        it.lastPeriod, it.start, it.end, it.semester) }
-    .values.map { rows -> rows.first().copy(weeks = rows.flatMap { it.weeks }.toSet()) }
+        it.lastPeriod, it.start, it.end, it.semester, it.rescheduledFrom, it.id.takeIf { _ -> it.isCustom }) }
+    .values.map { rows -> rows.first().copy(weeks = rows.flatMap { it.weeks }.toSet(),
+        locallyRemovedWeeks = rows.flatMap { it.locallyRemovedWeeks }.toSet()) }
     .sortedWith(compareBy<CourseSlot> { it.weekday }.thenBy { it.firstPeriod }.thenBy { it.lastPeriod }.thenBy { it.name })
 
 fun coursesOnDate(courses: List<CourseSlot>, semester: Semester, date: LocalDate): List<CourseSlot> =
@@ -66,7 +67,8 @@ data class OverviewCourseGroup(val placements: List<CourseSlot>) {
 }
 
 fun overviewGroups(courses: List<CourseSlot>): List<OverviewCourseGroup> = overviewCourses(courses)
-    .groupBy { listOf(it.semester, it.code, it.name, it.weekday, it.firstPeriod, it.lastPeriod) }
+    .groupBy { listOf(it.semester, it.code, it.name, it.weekday, it.firstPeriod, it.lastPeriod,
+        it.rescheduledFrom, it.id.takeIf { _ -> it.isCustom }) }
     .values.map { OverviewCourseGroup(it) }
 
 fun overviewLocation(group: OverviewCourseGroup, week: Int): String {

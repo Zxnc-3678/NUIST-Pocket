@@ -24,7 +24,8 @@ internal fun prepareWidgetBackground(source: Bitmap, screenWidth: Int, screenHei
 /** Android 11 doesn't read clipToOutline from XML. Bake just its two size variants,
  * splitting the screen-sized memory budget between the two rounded backgrounds. */
 @JvmOverloads
-internal fun legacyWidgetBackground(source: Bitmap, width: Int, height: Int, fade: Int, maxPixels: Int = 450_000): Bitmap {
+internal fun legacyWidgetBackground(source: Bitmap, width: Int, height: Int, fade: Int, maxPixels: Int = 450_000,
+                                    tint: Int = Color.WHITE): Bitmap {
     val size = imageSizeWithin(width, height, 900, maxPixels, upscale = true)
     val ratio = minOf(size.width.toFloat() / width, size.height.toFloat() / height)
     val output = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
@@ -40,7 +41,9 @@ internal fun legacyWidgetBackground(source: Bitmap, width: Int, height: Int, fad
     }
     Canvas(output).apply {
         drawRoundRect(bounds, radius, radius, paint)
-        paint.shader = null; paint.color = Color.argb(fade.coerceIn(WidgetAppearance.MIN_FADE, WidgetAppearance.MAX_FADE) * 255 / 100, 255, 255, 255)
+        paint.shader = null
+        paint.color = Color.argb(fade.coerceIn(WidgetAppearance.MIN_FADE, WidgetAppearance.MAX_FADE) * 255 / 100,
+            Color.red(tint), Color.green(tint), Color.blue(tint))
         drawRoundRect(bounds, radius, radius, paint)
     }
     return output

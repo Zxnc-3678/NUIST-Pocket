@@ -11,8 +11,40 @@ enum class HomeTab(val index: Int, val title: String) {
     DAY(0, "日程"), TIMETABLE(3, "课程表"), ROOMS(1, "教室"), EXAMS(2, "考试")
 }
 
+enum class ThemeMode(val title: String) {
+    SYSTEM("跟随系统"), LIGHT("浅色"), DARK("深色");
+
+    fun isDark(systemDark: Boolean): Boolean = when (this) {
+        SYSTEM -> systemDark
+        LIGHT -> false
+        DARK -> true
+    }
+}
+
+enum class CourseCardStyle(val title: String) {
+    ClassicBar("清爽彩条"), MorandiFill("莫兰迪柔彩"), GlassOutline("高透描边"), LiquidGlass("液态玻璃")
+}
+
+enum class TimetableGridStyle(val title: String, val alpha: Float) {
+    STANDARD("标准", 0.72f), FAINT("极淡", 0.30f), HIDDEN("隐藏", 0f)
+}
+
+internal enum class WallpaperScope(val title: String) {
+    TIMETABLE("仅课程表"), IMMERSIVE("全局沉浸")
+}
+
+internal enum class TimetableRecipe(
+    val title: String, val style: CourseCardStyle, val opacity: Int,
+    val grid: TimetableGridStyle, val fade: Int, val blur: Float,
+) {
+    LIQUID("液态琉璃", CourseCardStyle.LiquidGlass, 58, TimetableGridStyle.HIDDEN, 22, 0f),
+    CLEAR("清透痛表", CourseCardStyle.GlassOutline, 65, TimetableGridStyle.HIDDEN, 20, 0f),
+    SOFT("柔彩自习", CourseCardStyle.MorandiFill, 88, TimetableGridStyle.FAINT, 45, 4f),
+    CLASSIC("经典清爽", CourseCardStyle.ClassicBar, 92, TimetableGridStyle.STANDARD, 45, 0f)
+}
+
 /** UI preferences survive account changes; school data remains in its own store. */
-class AppPreferences(context: Context) {
+class AppPreferences(private val context: Context) {
     private val prefs = context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
     var studentTrack: StudentTrack
         get() = StudentTrack.read(prefs.getString("student_track", null))
@@ -22,7 +54,9 @@ class AppPreferences(context: Context) {
     internal val classScheduleGeneration: Long get() = prefs.getLong("class_schedule_generation", 0L)
     internal fun newClassScheduleSession() {
         schoolSnapshots.mutate {
-            val prefix = "suspended_${studentTrack.name}_"
+            val track = studentTrack
+            val prefix = "suspended_${track.name}_"
+            CourseOverrideStore(context, track).clear()
             prefs.edit {
                 putLong("class_schedule_generation", classScheduleGeneration + 1)
                 prefs.all.keys.filter { it.startsWith(prefix) }.forEach { remove(it) }
@@ -57,9 +91,19 @@ class AppPreferences(context: Context) {
     var themeAccent: Int
         get() = ThemeAccent.readable(prefs.getInt("theme_accent", ThemeAccent.DEFAULT))
         set(value) { prefs.edit().putInt("theme_accent", ThemeAccent.readable(value)).apply() }
+    var themeMode: ThemeMode
+        get() = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", null) } ?: ThemeMode.SYSTEM
+        set(value) { prefs.edit { putString("theme_mode", value.name) } }
     var wallpaperFade: Int
         get() = prefs.getInt("wallpaper_fade", 45).coerceIn(20, 90)
         set(value) { prefs.edit().putInt("wallpaper_fade", value.coerceIn(20, 90)).apply() }
+    internal var wallpaperScope: WallpaperScope
+        get() = WallpaperScope.entries.firstOrNull { it.name == prefs.getString("wallpaper_scope", null) }
+            ?: WallpaperScope.TIMETABLE
+        set(value) { prefs.edit { putString("wallpaper_scope", value.name) } }
+    var scheduleMulticolor: Boolean
+        get() = prefs.getBoolean("schedule_multicolor", true)
+        set(value) { prefs.edit { putBoolean("schedule_multicolor", value) } }
     var timetableShowInactive: Boolean
         get() = prefs.getBoolean("timetable_show_inactive", true)
         set(value) { prefs.edit { putBoolean("timetable_show_inactive", value) } }
@@ -67,8 +111,26 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean("shared_timetable_show_inactive", true)
         set(value) { prefs.edit { putBoolean("shared_timetable_show_inactive", value) } }
     var timetableCardOpacity: Int
-        get() = prefs.getInt("timetable_card_opacity", 90).coerceIn(80, 98)
-        set(value) { prefs.edit { putInt("timetable_card_opacity", value.coerceIn(80, 98)) } }
+        get() = prefs.getInt("timetable_card_opacity", 90).coerceIn(50, 98)
+        set(value) { prefs.edit { putInt("timetable_card_opacity", value.coerceIn(50, 98)) } }
+    var courseCardStyle: CourseCardStyle
+        get() = CourseCardStyle.entries.firstOrNull { it.name == prefs.getString("course_card_style", null) } ?: CourseCardStyle.ClassicBar
+        set(value) { prefs.edit { putString("course_card_style", value.name) } }
+    var timetableGridStyle: TimetableGridStyle
+        get() = TimetableGridStyle.entries.firstOrNull { it.name == prefs.getString("timetable_grid_style", null) } ?: TimetableGridStyle.STANDARD
+        set(value) { prefs.edit { putString("timetable_grid_style", value.name) } }
+    var timetableWallpaperBlur: Float
+        get() = prefs.getFloat("timetable_wallpaper_blur", 0f)
+        set(value) { prefs.edit { putFloat("timetable_wallpaper_blur", value) } }
+    internal fun applyTimetableRecipe(recipe: TimetableRecipe) {
+        prefs.edit {
+            putString("course_card_style", recipe.style.name)
+            putInt("timetable_card_opacity", recipe.opacity)
+            putString("timetable_grid_style", recipe.grid.name)
+            putInt("wallpaper_fade", recipe.fade)
+            putFloat("timetable_wallpaper_blur", recipe.blur)
+        }
+    }
     var homeTab: HomeTab
         get() {
             val track = studentTrack
@@ -98,14 +160,21 @@ class AppPreferences(context: Context) {
 
 fun loadLocalSchedule(context: Context, track: StudentTrack = AppPreferences(context).studentTrack): WidgetSchedule? {
     val cache = SchoolCache(context, track)
-    cache.load()?.let {
-        return WidgetSchedule(it.semester, it.courses, it.periods, "学校缓存", it.fetchedAt, cache.loginRequired,
-            AppPreferences(context).suspendedDates(track, it.semester.code))
-    }
     val store = PocketStore(context, track)
-    val courses = store.savedCourses() ?: return null
-    return runCatching {
-        WidgetSchedule(Semester(courses.first().semester, store.firstMonday()), courses, store.periods, "本机导入",
-            suspendedDates = AppPreferences(context).suspendedDates(track, courses.first().semester))
-    }.getOrNull()
+    val preferences = AppPreferences(context)
+    val overrides = CourseOverrideStore(context, track)
+    cache.load()?.let {
+        val semester = it.semester.code
+        val courses = applyCourseOverrides(it.courses, semester, overrides.load(semester))
+        return WidgetSchedule(it.semester, courses, it.periods, "学校缓存", it.fetchedAt, cache.loginRequired,
+            preferences.suspendedDates(track, semester))
+    }
+    val imported = store.savedCourses()
+    val semester = imported?.firstOrNull()?.semester ?: DEFAULT_LOCAL_SEMESTER
+    val rules = overrides.load(semester)
+    if (imported == null && rules.customCourses.isEmpty()) return null
+    return WidgetSchedule(Semester(semester, store.firstMonday()),
+        applyCourseOverrides(imported.orEmpty(), semester, rules), store.periods,
+        if (imported == null) "手动课程" else "本机导入",
+        suspendedDates = preferences.suspendedDates(track, semester))
 }

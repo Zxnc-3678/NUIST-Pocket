@@ -8,7 +8,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
@@ -82,6 +81,7 @@ class TodayWidgetProvider : AppWidgetProvider() {
             // Share one bounded bitmap across all responsive sizes; no image decoding in render.
             val background = loadWidgetBackground(context)
             val appearance = WidgetAppearance(context)
+            appearance.syncAppPrimary(appearance.appPrimary(preferences))
             val todos = if (appearance.showTodos) runCatching { widgetTodos(TodoStore(context).load(), now.toLocalDate()) }.getOrDefault(emptyList()) else emptyList()
             ids.forEach { id ->
                 val options = manager.getAppWidgetOptions(id)
@@ -115,6 +115,26 @@ class TodayWidgetProvider : AppWidgetProvider() {
         internal fun render(context: Context, snapshot: WidgetSchedule?, agenda: WidgetAgenda?, now: LocalDateTime, width: Int, height: Int,
                             todos: List<TodoItem> = emptyList(), background: Bitmap? = null, appearance: WidgetAppearance = WidgetAppearance(context)): RemoteViews {
             val view = RemoteViews(context.packageName, R.layout.widget_today)
+            val tone = appearance.tone
+            val dark = tone == WidgetTone.DARK
+            val accent = appearance.accent
+            val solidBackground = if (dark) tone.veil else appearance.color
+            val accentText = tone.accentText(accent, solidBackground, background != null, appearance.fade, appearance.cardOpacity)
+            val cardBackground = if (dark) {
+                when (appearance.cardOpacity) {
+                    50 -> R.drawable.widget_card_dark_50
+                    70 -> R.drawable.widget_card_dark_70
+                    85 -> R.drawable.widget_course_dark_85
+                    else -> R.drawable.widget_course_dark_100
+                }
+            } else {
+                when (appearance.cardOpacity) {
+                    50 -> R.drawable.widget_card_light_50
+                    70 -> R.drawable.widget_card_light_70
+                    85 -> R.drawable.widget_caption_background
+                    else -> R.drawable.widget_course_background
+                }
+            }
             val policy = widgetLayoutPolicy(width, height, context.resources.configuration.fontScale)
             val entries = agenda?.entries.orEmpty()
             val todoLayout = widgetTodoLayout(width, height, context.resources.configuration.fontScale, entries.size, todos.size)
@@ -124,16 +144,27 @@ class TodayWidgetProvider : AppWidgetProvider() {
             view.setViewVisibility(R.id.widget_veil, if (background != null && !legacyImage) View.VISIBLE else View.GONE)
             val colors = listOf(R.drawable.widget_background, R.drawable.widget_background_blue, R.drawable.widget_background_green,
                 R.drawable.widget_background_purple, R.drawable.widget_background_warm)
-            view.setInt(R.id.widget_panel, "setBackgroundResource", colors[WidgetAppearance.colors.indexOf(appearance.color).coerceAtLeast(0)])
+            val panelBackground = if (dark) R.drawable.widget_background_dark
+                else colors[WidgetAppearance.colors.indexOf(appearance.color)]
+            view.setInt(R.id.widget_panel, "setBackgroundResource", panelBackground)
             if (background != null) {
                 if (legacyImage) {
                     val metrics = context.resources.displayMetrics
                     val budget = (widgetImagePixelBudget(metrics.widthPixels, metrics.heightPixels) / 2).coerceAtLeast(1)
-                    view.setImageViewBitmap(R.id.widget_wallpaper_legacy, legacyWidgetBackground(background, width, height, appearance.fade, budget))
+                    view.setImageViewBitmap(R.id.widget_wallpaper_legacy,
+                        legacyWidgetBackground(background, width, height, appearance.fade, budget, tone.veil))
                 }
                 else view.setImageViewBitmap(R.id.widget_wallpaper, background)
             }
-            view.setInt(R.id.widget_veil, "setBackgroundColor", Color.argb(appearance.fade * 255 / 100, 255, 255, 255))
+            view.setInt(R.id.widget_veil, "setBackgroundColor", tone.veilColor(appearance.fade))
+            view.setInt(R.id.widget_refresh, "setColorFilter", accentText)
+            listOf(R.id.widget_caption, R.id.widget_empty, R.id.widget_todos).forEach {
+                view.setInt(it, "setBackgroundResource", cardBackground)
+            }
+            view.setTextColor(R.id.widget_date, tone.ink)
+            view.setTextColor(R.id.widget_week, tone.muted)
+            view.setTextColor(R.id.widget_empty, tone.muted)
+            view.setTextColor(R.id.widget_todo_heading, accentText)
             if (policy.compact) {
                 view.setTextViewTextSize(R.id.widget_date, TypedValue.COMPLEX_UNIT_SP, 13f)
                 view.setTextViewTextSize(R.id.widget_week, TypedValue.COMPLEX_UNIT_SP, 11f)
@@ -170,13 +201,18 @@ class TodayWidgetProvider : AppWidgetProvider() {
                 val row = RemoteViews(context.packageName, if (policy.compact) R.layout.widget_course_compact else R.layout.widget_course)
                 row.setTextViewText(R.id.widget_start, entry.start?.toLocalTime()?.toString() ?: "待定")
                 row.setTextViewText(R.id.widget_end, "${if (policy.compact) "– " else ""}${entry.end?.toLocalTime()?.toString() ?: "待定"}")
-                row.setTextViewText(R.id.widget_name, course.name)
+                row.setTextViewText(R.id.widget_name, course.displayName)
                 row.setInt(R.id.widget_name, "setMaxLines", policy.nameLines)
                 row.setInt(R.id.widget_detail, "setMaxLines", policy.detailLines)
                 row.setTextViewText(R.id.widget_detail, "第${course.firstPeriod}–${course.lastPeriod}节 | ${course.room.ifBlank { "地点待定" }}${if (policy.compact) "" else " | ${course.teacher.ifBlank { "教师待定" }}"}")
-                val highlighted = entry.state != WidgetCourseState.WAITING
-                row.setInt(R.id.widget_course_root, "setBackgroundResource", if (highlighted) R.drawable.widget_course_active_background else R.drawable.widget_course_background)
-                row.setInt(R.id.widget_stripe, "setBackgroundColor", if (highlighted) 0xFFEF9D24.toInt() else 0xFF3155C6.toInt())
+                row.setInt(R.id.widget_course_root, "setBackgroundResource", cardBackground)
+                row.setInt(R.id.widget_stripe, "setBackgroundColor",
+                    course.customColorHex?.let(android.graphics.Color::parseColor) ?: accent)
+                row.setTextColor(R.id.widget_name, tone.ink)
+                row.setTextColor(R.id.widget_detail, tone.muted)
+                listOf(R.id.widget_start, R.id.widget_end, R.id.widget_countdown, R.id.widget_state).forEach {
+                    row.setTextColor(it, accentText)
+                }
                 val target = entry.countdownTarget
                 row.setViewVisibility(R.id.widget_countdown, if (target != null) View.VISIBLE else View.GONE)
                 val unknownTime = target == null && (entry.start == null || entry.state == WidgetCourseState.ONGOING)
@@ -210,6 +246,7 @@ class TodayWidgetProvider : AppWidgetProvider() {
                 }
                 view.setTextViewText(R.id.widget_todo_heading, "$label · ${todos.size}项  ›")
                 listOf(R.id.widget_todo_one, R.id.widget_todo_two).forEachIndexed { index, id ->
+                    view.setTextColor(id, tone.ink)
                     view.setViewVisibility(id, if (index < todoLayout.todoRows) View.VISIBLE else View.GONE)
                     todos.getOrNull(index)?.let { item ->
                         val whenText = if (item.date < now.toLocalDate()) "${item.date.monthValue}/${item.date.dayOfMonth} 逾期" else item.time?.toString().orEmpty()

@@ -1,23 +1,34 @@
 package cn.nuist.pocket
 
+import android.app.Activity
+import android.view.Window
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import cn.nuist.pocket.data.ThemeAccent
+import cn.nuist.pocket.data.ThemeMode
+
+internal val LocalPocketDark = compositionLocalOf { false }
 
 @Composable
-internal fun PocketTheme(accent: Int, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+internal fun Activity.PocketTheme(accent: Int, mode: ThemeMode, content: @Composable () -> Unit) {
+    val dark = mode.isDark(isSystemInDarkTheme())
     val colors = remember(accent, dark) {
       val chosen = Color(0xFF000000 or ThemeAccent.readable(accent).toLong())
       if (dark) {
-        val primary = if (accent == ThemeAccent.DEFAULT) Color(0xFF82ABFF) else lerp(chosen, Color.White, 0.55f)
+        val primary = Color(ThemeAccent.primary(accent, dark = true))
         val container = lerp(chosen, Color(0xFF1D222A), 0.68f)
         darkColorScheme(
           primary = primary, onPrimary = Color(0xFF101B30),
@@ -45,9 +56,35 @@ internal fun PocketTheme(accent: Int, content: @Composable () -> Unit) {
         primaryContainer = lerp(chosen, Color.White, 0.90f), onPrimaryContainer = Color(0xFF182641),
         secondaryContainer = lerp(chosen, Color.White, 0.90f), onSecondaryContainer = chosen,
         tertiaryContainer = Color(0xFFFFF4DE), onTertiaryContainer = Color(0xFF4A3213),
-        outline = Color(0xFFDCE2EF),
+        onSurfaceVariant = Color(0xFF5E6B80), surfaceVariant = Color(0xFFEDF1F8),
+        outlineVariant = Color(0xFFE2E8F2), outline = Color(0xFFD0D9E8),
       )
     }
-    val typography = remember { Typography() }
-    MaterialTheme(colorScheme = colors, typography = typography, content = content)
+    val typography = remember {
+        val defaults = Typography()
+        defaults.copy(bodyLarge = defaults.bodyLarge.copy(lineHeight = 22.sp),
+            bodySmall = defaults.bodySmall.copy(lineHeight = 17.sp))
+    }
+    CompositionLocalProvider(LocalPocketDark provides dark) {
+        PocketSystemBars(window)
+        MaterialTheme(
+            colorScheme = colors,
+            typography = typography,
+            shapes = Shapes(extraSmall = PocketShapes.Compact, small = PocketShapes.Compact,
+                medium = PocketShapes.Control, large = PocketShapes.Card, extraLarge = PocketShapes.Dialog),
+            content = content,
+        )
+    }
+}
+
+@Composable
+internal fun PocketSystemBars(window: Window) {
+    val dark = LocalPocketDark.current
+    DisposableEffect(window, dark) {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+        onDispose { }
+    }
 }

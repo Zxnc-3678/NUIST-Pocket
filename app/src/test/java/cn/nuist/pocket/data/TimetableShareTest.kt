@@ -16,7 +16,7 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 class TimetableShareTest {
     @Test fun courseDetailsAndTemporaryDayOffSurviveACompleteRoundTrip() {
         val term = Semester("2026-2027-1", LocalDate.of(2026, 8, 31))
-        val course = CourseSlot("demo", "C1", "示例课程", "教师", "示例教学楼A101", 4, 3, 4,
+        val course = CourseSlot("demo", "C1", "新时代中国特色社会主义理论与实践", "教师", "明德N101", 4, 3, 4,
             setOf(2, 4, 7, 9), LocalTime.of(10, 10), LocalTime.of(11, 50), term.code)
         val dayOff = LocalDate.of(2026, 11, 5)
         val schedule = WidgetSchedule(term, listOf(course), listOf(Period(3, LocalTime.of(10, 10), LocalTime.of(10, 55), true)),
@@ -77,11 +77,11 @@ class TimetableShareTest {
     }
 
     @Test fun sixteenCoursesCanBeEncodedInOneQrAndReadBackWithoutLosingDetails() {
-        val names = listOf("示例课程", "大气科学数值模拟与高性能计算", "雷达与卫星气象学基础", "气象统计方法及其实际应用",
+        val names = listOf("新时代中国特色社会主义理论与实践", "大气科学数值模拟与高性能计算", "雷达与卫星气象学基础", "气象统计方法及其实际应用",
             "动力气象学", "天气学原理与预报技术", "大学英语视听说", "大学物理实验", "数据结构与算法设计", "程序设计与计算思维",
             "遥感原理与数据处理", "概率论与数理统计", "人工智能导论与应用", "大学体育专项训练", "现代通信技术基础", "形势与政策")
         val term = Semester("2026-2027-1", LocalDate.of(2026, 8, 31))
-        val courses = names.mapIndexed { i, name -> CourseSlot("demo$i", "TEST$i", name, "测试教师$i", "示例教学楼A${201 + i}",
+        val courses = names.mapIndexed { i, name -> CourseSlot("demo$i", "TEST$i", name, "测试教师$i", "明德楼N${201 + i}",
             i / 3 + 1, i % 3 * 2 + 1, i % 3 * 2 + 2, (1..16).toSet(), null, null, term.code) }
         val periods = (1..11).map { Period(it, LocalTime.of(8, 0), LocalTime.of(8, 45), true) }
         val schedule = WidgetSchedule(term, courses, periods, "虚构", suspendedDates = setOf(
@@ -99,4 +99,3 @@ class TimetableShareTest {
         assertEquals(schedule.suspendedDates, decoded.suspendedDates)
     }
 }
-

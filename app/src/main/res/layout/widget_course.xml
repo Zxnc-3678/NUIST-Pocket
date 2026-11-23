@@ -4,14 +4,14 @@
     android:layout_marginBottom="@dimen/widget_content_gap" android:minHeight="52dp" android:orientation="horizontal"
     android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="6dp" android:background="@drawable/widget_course_background">
     <LinearLayout android:layout_width="48dp" android:layout_height="wrap_content" android:orientation="vertical">
-        <TextView android:id="@+id/widget_start" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#3155C6" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" />
-        <TextView android:id="@+id/widget_end" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#68758E" android:textSize="12sp" android:maxLines="1" />
+        <TextView android:id="@+id/widget_start" android:fontFeatureSettings="tnum" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#182641" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" />
+        <TextView android:id="@+id/widget_end" android:fontFeatureSettings="tnum" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#68758E" android:textSize="12sp" android:maxLines="1" />
     </LinearLayout>
-    <TextView android:id="@+id/widget_stripe" android:layout_width="3dp" android:layout_height="34dp" android:background="#3155C6" />
+    <TextView android:id="@+id/widget_stripe" android:layout_width="3dp" android:layout_height="34dp" android:background="#182641" />
     <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginStart="10dp">
-        <TextView android:id="@+id/widget_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#182641" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
-        <TextView android:id="@+id/widget_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="#68758E" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
-        <Chronometer android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="#3155C6" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" android:visibility="gone" />
+        <TextView android:id="@+id/widget_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#182641" android:textSize="14sp" android:textFontWeight="600" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_detail" android:fontFeatureSettings="tnum" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="#68758E" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+        <Chronometer android:id="@+id/widget_countdown" android:fontFeatureSettings="tnum" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="#182641" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" android:visibility="gone" />
         <TextView android:id="@+id/widget_state" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="#68758E" android:textSize="11sp" android:maxLines="1" android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

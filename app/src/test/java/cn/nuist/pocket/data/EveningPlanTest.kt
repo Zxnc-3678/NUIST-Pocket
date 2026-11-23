@@ -8,7 +8,7 @@ import java.time.LocalTime
 class EveningPlanTest {
     private val semester = Semester("2026-2027-1", LocalDate.of(2026, 8, 31))
     private val tomorrow = LocalDate.of(2026, 10, 23)
-    private fun course(name: String = "早课", first: Int = 1, week: Int = 8, day: Int = 5, room: String = "示例教学楼A101") =
+    private fun course(name: String = "早课", first: Int = 1, week: Int = 8, day: Int = 5, room: String = "明德N101") =
         CourseSlot(name, name, name, "老师", room, day, first, first + 1, setOf(week), null, null, semester.code)
     private fun snapshot(vararg rows: CourseSlot) = WidgetSchedule(semester, rows.toList(), listOf(
         Period(1, LocalTime.of(8, 0), LocalTime.of(8, 45), true),
@@ -24,7 +24,7 @@ class EveningPlanTest {
         val message = eveningMessage(snapshot(course("晚", 3), course(), course("非本周", 1, 7)), tomorrow)!!
         assertTrue(message.title.startsWith("明天早八"))
         assertTrue(message.title.contains("2段"))
-        assertTrue(message.body.startsWith("早课 · 示例教学楼A101"))
+        assertTrue(message.body.startsWith("早课 · 明德N101"))
         assertEquals(tomorrow, message.date)
         assertTrue(eveningMessage(snapshot(course(first = 3)), tomorrow)!!.title.startsWith("明天早十"))
     }
@@ -63,5 +63,3 @@ class EveningPlanTest {
         assertFalse(reminderWindow(tomorrow.plusDays(1).atStartOfDay(), LocalTime.of(23, 59)))
     }
 }
-
-

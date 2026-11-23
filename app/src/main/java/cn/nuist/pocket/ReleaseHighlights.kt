@@ -1,30 +1,65 @@
 package cn.nuist.pocket
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun ReleaseHighlights(onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss,
-        title = { Text("v${BuildConfig.VERSION_NAME} 更新小提示") },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("• 修复课程卡片跨过午休、晚休的问题，同一门跨时段课程会分段显示。")
-                Text("• 重叠课程按上午、下午、晚间分别归组，其他安排与详情入口更准确。")
-                Text("• 调整分段卡片的文字空间，继续完整显示课程名称。")
-                Text("以后可在“设置 → 本次更新”重看。", style = MaterialTheme.typography.bodySmall)
+    val colors = MaterialTheme.colorScheme
+    val press = rememberPocketPress()
+    PickerSheet(onDismiss) {
+        Column(Modifier.widthIn(max = 460.dp).fillMaxWidth().align(Alignment.CenterHorizontally)
+            .padding(start = 22.dp, end = 22.dp, bottom = 16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 23.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("欢迎来到 v${BuildConfig.VERSION_NAME}", fontSize = 27.sp, lineHeight = 35.sp,
+                    fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, style = tabularTextStyle())
+                Text("NUIST Pocket 正式版焕新", fontSize = 13.sp, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } })
+            Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
+                ReleaseFeature(Icons.Outlined.Star, "壁纸铺满，四张轮换", "壁纸铺到状态栏和底栏，最多存四张随机换，液态玻璃和四套风格随手试。")
+                ReleaseFeature(Icons.Outlined.Edit, "课表长按就能改", "改简称、换颜色、停一节或跨周调课，长按空格加课，再同步也都在。")
+                ReleaseFeature(Icons.Outlined.CheckCircle, "待办跟着时间走", "定时待办和课程排进同一条时间轴，做完在日程里轻轻一勾。")
+                ReleaseFeature(Icons.Outlined.DateRange, "细节都带点弹性", "圆角抽屉、纱带滚轮，切页轻轻一淡，小组件的卡片也能一起调透。")
+            }
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onDismiss, shape = CircleShape, interactionSource = press.interaction,
+                modifier = press.modifier(Modifier.fillMaxWidth().heightIn(min = 50.dp))) { Text("开始体验") }
+            Text("以后可在「设置 → 本次更新」随时重看", Modifier.fillMaxWidth().padding(top = 10.dp),
+                color = colors.onSurfaceVariant.copy(alpha = 0.82f), textAlign = TextAlign.Center, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun ReleaseFeature(icon: ImageVector, title: String, detail: String) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top) {
+        Surface(modifier = Modifier.size(40.dp), color = colors.primaryContainer, shape = PocketShapes.Control) {
+            Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(20.dp), tint = colors.primary) }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = colors.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 21.sp)
+            Text(detail, color = colors.onSurfaceVariant, fontSize = 13.sp, lineHeight = 19.sp)
+        }
+    }
 }

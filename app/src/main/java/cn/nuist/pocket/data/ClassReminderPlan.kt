@@ -24,13 +24,16 @@ internal fun classEvents(schedule: WidgetSchedule, track: StudentTrack, date: Lo
             val (start, end) = course.times(schedule.periods)
             if (start == null || end == null || !end.isAfter(start)) null else Triple(course, start, end)
         }
-        .groupBy { (course, start, end) -> listOf(course.code, course.name, start.toString(), end.toString()) }
+        .groupBy { (course, start, end) ->
+            listOf(course.code, course.name, start.toString(), end.toString(), course.id.takeIf { course.isCustom })
+        }
         .map { (_, entries) ->
             val (course, start, end) = entries.first()
             val startsAt = date.atTime(start).atZone(ClassZone).toInstant().toEpochMilli()
             val endsAt = date.atTime(end).atZone(ClassZone).toInstant().toEpochMilli()
-            val identity = listOf(track.name, accountGeneration.toString(), schedule.semester.code, date.toString(), course.code, course.name,
-                startsAt.toString(), endsAt.toString()).joinToString("") { "${it.length}:$it" }
+            val identity = (listOf(track.name, accountGeneration.toString(), schedule.semester.code, date.toString(), course.code, course.name,
+                startsAt.toString(), endsAt.toString()) + listOfNotNull(course.id.takeIf { course.isCustom }))
+                .joinToString("") { "${it.length}:$it" }
             val hex = "0123456789abcdef"
             val key = buildString(64) {
                 digest.digest(identity.toByteArray(Charsets.UTF_8)).forEach {
@@ -38,7 +41,7 @@ internal fun classEvents(schedule: WidgetSchedule, track: StudentTrack, date: Lo
                     append(hex[byte ushr 4]); append(hex[byte and 15])
                 }
             }
-            ClassEvent(key, track, date, course.name,
+            ClassEvent(key, track, date, course.displayName,
                 entries.map { it.first.room.ifBlank { "地点待定" } }.distinct().joinToString(" / "), startsAt, endsAt)
         }.sortedWith(compareBy<ClassEvent> { it.startsAt }.thenBy { it.title })
 }

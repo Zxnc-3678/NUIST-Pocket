@@ -11,7 +11,12 @@ data class CourseSlot(
     val id: String, val code: String, val name: String, val teacher: String,
     val room: String, val weekday: Int?, val firstPeriod: Int?, val lastPeriod: Int?,
     val weeks: Set<Int>, val start: LocalTime?, val end: LocalTime?, val semester: String,
+    val shortName: String? = null, val customColorHex: String? = null,
+    val rescheduledFrom: SessionOrigin? = null, val isCustom: Boolean = false,
+    val locallyRemovedWeeks: Set<Int> = emptySet(),
 ) {
+    val displayName: String get() = shortName ?: name
+    val isRescheduled: Boolean get() = rescheduledFrom != null
     val arranged: Boolean get() = weekday != null && firstPeriod != null && lastPeriod != null && weeks.isNotEmpty()
     fun occurs(week: Int, day: Int) = arranged && week in weeks && weekday == day
     fun times(periods: List<Period>): Pair<LocalTime?, LocalTime?> =

@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.dp
     action: (@Composable RowScope.() -> Unit)? = null,
     title: @Composable BoxScope.() -> Unit,
 ) {
-    Row(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).heightIn(min = 52.dp).padding(horizontal = 6.dp),
+    val background = if (LocalPocketImmersive.current) Modifier else Modifier.background(MaterialTheme.colorScheme.background)
+    Row(modifier.fillMaxWidth().then(background).heightIn(min = 52.dp).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(sideWidth), contentAlignment = Alignment.CenterStart, content = leading)
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center, content = title)

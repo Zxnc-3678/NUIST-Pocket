@@ -11,7 +11,7 @@
             android:textSize="14sp" android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"
             android:autoSizeTextType="uniform" android:autoSizeMinTextSize="10sp"
             android:autoSizeMaxTextSize="14sp" android:autoSizeStepGranularity="1sp" />
-        <TextView android:id="@+id/class_notification_detail"
+        <TextView android:id="@+id/class_notification_detail" android:fontFeatureSettings="tnum"
             android:layout_width="match_parent" android:layout_height="24dp" android:gravity="center_vertical"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2"
             android:textColor="@color/class_notification_text_secondary"
@@ -24,7 +24,7 @@
         android:gravity="center" android:paddingStart="8dp" android:paddingEnd="8dp"
         android:background="@drawable/class_notification_action_background"
         android:textColor="@color/class_notification_action_text"
-        android:textSize="13sp" android:textStyle="bold" android:maxLines="1"
+        android:textSize="13sp" android:textFontWeight="600" android:maxLines="1"
         android:autoSizeTextType="uniform" android:autoSizeMinTextSize="10sp"
         android:autoSizeMaxTextSize="13sp" android:autoSizeStepGranularity="1sp" />
 </LinearLayout>

@@ -7,11 +7,9 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.NumberPicker;
 import android.widget.RemoteViews;
-import java.time.LocalTime;
 
-/** Offscreen native controls and XML geometry; no gestures or personal data. */
+/** Offscreen widget XML geometry; no gestures or personal data. */
 public final class UiRefinementInstrumentation {
     private static void check(boolean value, String label) { if (!value) throw new AssertionError(label); }
     private static int id(Context context, String type, String name) {
@@ -25,23 +23,6 @@ public final class UiRefinementInstrumentation {
         instrumentation.runOnMainSync(() -> {
             try {
                 Context context = instrumentation.getTargetContext();
-                TimeWheelView wheels = new TimeWheelView(context);
-                for (int[] time : new int[][]{{0,0},{13,23},{23,59},{8,5}}) {
-                    wheels.setTime(time[0],time[1]);
-                    check(wheels.selectedTime().equals(LocalTime.of(time[0],time[1])), "time roundtrip");
-                }
-                boolean invalid = false;
-                try { wheels.setTime(24,15); } catch (IllegalArgumentException expected) { invalid = true; }
-                check(invalid && wheels.selectedTime().equals(LocalTime.of(8,5)), "invalid hour preserves selection");
-                invalid = false;
-                try { wheels.setTime(18,60); } catch (IllegalArgumentException expected) { invalid = true; }
-                check(invalid && wheels.selectedTime().equals(LocalTime.of(8,5)), "invalid minute preserves selection");
-                NumberPicker hours = (NumberPicker)((ViewGroup)wheels.getChildAt(0)).getChildAt(1);
-                NumberPicker minutes = (NumberPicker)((ViewGroup)wheels.getChildAt(1)).getChildAt(1);
-                check(hours.getMaxValue()==23 && minutes.getMaxValue()==59 && hours.getWrapSelectorWheel() && minutes.getWrapSelectorWheel(), "24h and minute rolling ranges");
-                check(hours.getDescendantFocusability()==ViewGroup.FOCUS_BLOCK_DESCENDANTS, "no keyboard in rolling control");
-                report.append("timeWheels: 4 roundtrips, 2 invalid-input guards, ranges, keyboard disabled\n");
-
                 RemoteViews layout = new RemoteViews(context.getPackageName(), id(context,"layout","widget_today"));
                 layout.setViewVisibility(id(context,"id","widget_empty"), View.GONE);
                 layout.setViewVisibility(id(context,"id","widget_todos"), View.VISIBLE);

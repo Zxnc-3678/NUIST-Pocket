@@ -10,5 +10,4 @@
 -keep class cn.nuist.pocket.TodayWidgetProvider$Companion { public android.widget.RemoteViews render*(...); }
 -keepclassmembers class cn.nuist.pocket.TodayWidgetProvider { public static ** Companion; }
 -keep class cn.nuist.pocket.WidgetBackgroundKt { public *; }
--keep class cn.nuist.pocket.TimeWheelView { public *; }
 -keep class cn.nuist.pocket.data.ImageSize { public *; }

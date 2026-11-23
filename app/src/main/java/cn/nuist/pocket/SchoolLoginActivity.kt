@@ -33,7 +33,8 @@ class SchoolLoginActivity : ComponentActivity() {
         val portal = if (track == StudentTrack.GRADUATE) GraduateRequests.PORTAL else SchoolRequests.PORTAL
         enableEdgeToEdge()
         setContent {
-            PocketTheme(AppPreferences(this).themeAccent) {
+            val preferences = remember { AppPreferences(this) }
+            PocketTheme(preferences.themeAccent, preferences.themeMode) {
                 val scope = rememberCoroutineScope()
                 var currentHost by remember { mutableStateOf(if (track == StudentTrack.GRADUATE) "nxdyjs.nuist.edu.cn" else "jwxt.nuist.edu.cn") }
                 var busy by remember { mutableStateOf(false) }
@@ -72,7 +73,7 @@ class SchoolLoginActivity : ComponentActivity() {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = { finish() }) { Text("关闭") }
                             TextButton(enabled = !busy, onClick = { browser?.reload() }) { Text("刷新") }
-                            Button(enabled = !busy, onClick = {
+                            Button(shape = PocketShapes.Control, enabled = !busy, onClick = {
                                 scope.launch {
                                     busy = true
                                     try {

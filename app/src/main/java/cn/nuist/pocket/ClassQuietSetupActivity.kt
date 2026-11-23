@@ -49,11 +49,11 @@ class ClassQuietSetupActivity : ComponentActivity() {
                     permission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 else classSystemSettings(this, Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             }
-            PocketTheme(preferences.themeAccent) {
+            PocketTheme(preferences.themeAccent, preferences.themeMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState())
                         .padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("课程提醒与声音预约", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                        Text("课程提醒与声音预约", fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 30.sp)
                         if (requestedKey == null) ClassReminderControls(preferences, permissionRevision, ::requestNotifications)
                         else {
                             var event by remember { mutableStateOf<ClassEvent?>(null) }
@@ -70,14 +70,14 @@ class ClassQuietSetupActivity : ComponentActivity() {
                             val notifications = remember(permissionRevision) { ClassReminders.notificationsAllowed(this@ClassQuietSetupActivity) }
                             event?.let { course ->
                                 Text(course.title, fontWeight = FontWeight.Medium, fontSize = 18.sp)
-                                Text("${course.date} · ${ClassReminders.clock(course.startsAt)}–${ClassReminders.clock(course.endsAt)}\n${course.room}")
-                                Text("预约${requestedMode.title}：${ClassReminders.clock(course.startsAt - CLASS_QUIET_MARGIN_MS)}生效，${ClassReminders.clock(course.endsAt + CLASS_QUIET_MARGIN_MS)}结束。")
+                                Text("${course.date} · ${ClassReminders.clock(course.startsAt)}–${ClassReminders.clock(course.endsAt)}\n${course.room}", style = tabularTextStyle())
+                                Text("预约${requestedMode.title}：${ClassReminders.clock(course.startsAt - CLASS_QUIET_MARGIN_MS)}生效，${ClassReminders.clock(course.endsAt + CLASS_QUIET_MARGIN_MS)}结束。", style = tabularTextStyle())
                                 Text(if (requested) "授权完成后，会自动预约这堂课；你可随时从通知或设置取消。"
                                     else "确认预约后，才会在上课前切换声音。", style = MaterialTheme.typography.bodySmall)
                             }
                             if (loaded && event == null) Text("课程或培养类型已变化，本次通知已失效，请使用最新提醒。")
                             if (!preferences.classRemindersEnabled) Text("请先在应用设置开启课前提醒。")
-                            if (!requested && event != null && preferences.classRemindersEnabled) Button(onClick = { requested = true }) {
+                            if (!requested && event != null && preferences.classRemindersEnabled) Button(shape = PocketShapes.Control, onClick = { requested = true }) {
                                 Text("预约${requestedMode.title}")
                             }
                             ClassPermissionControls(permissionRevision, ::requestNotifications)
@@ -116,9 +116,9 @@ internal fun classSystemSettings(context: Context, action: String, channel: Stri
     val canNotify = remember(revision) { ClassReminders.notificationsAllowed(context) }
     val exact = remember(revision) { ClassReminders.preciseAllowed(context) }
     val policy = remember(revision) { ClassReminders.policyAllowed(context) }
-    Text("1 · 通知", fontWeight = FontWeight.Bold)
+    Text("1 · 通知", fontWeight = FontWeight.Medium, style = tabularTextStyle())
     Text(if (canNotify) "系统通知与课前通道：已允许" else "未允许或课前通道已关闭；晚间提醒也需要通知权限。", fontSize = 12.sp)
-    OutlinedButton(onClick = notifications, modifier = Modifier.fillMaxWidth()) { Text(if (canNotify) "检查系统通知与锁屏设置" else "允许系统通知") }
+    OutlinedButton(shape = PocketShapes.Control, onClick = notifications, modifier = Modifier.fillMaxWidth()) { Text(if (canNotify) "检查系统通知与锁屏设置" else "允许系统通知") }
     if (canNotify) {
         Text("课前提醒和预约生效后的状态是两项通知，请分别允许锁屏显示。", fontSize = 12.sp)
         TextButton(onClick = { classSystemSettings(context, Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, ClassReminders.ALERT_CHANNEL) }) {
@@ -130,15 +130,15 @@ internal fun classSystemSettings(context: Context, action: String, channel: Stri
         Text("若“在锁定屏幕上”设为“完全不显示通知”，请改为显示通知；是否显示课程内容可在应用内选择。", fontSize = 12.sp)
     }
     HorizontalDivider()
-    Text("2 · 闹钟和提醒", fontWeight = FontWeight.Bold)
+    Text("2 · 闹钟和提醒", fontWeight = FontWeight.Medium, style = tabularTextStyle())
     Text(if (exact) "准时提醒：已允许或系统无需单独授权" else "未允许；课前提醒可能延迟，声音预约也无法准时执行。", fontSize = 12.sp)
     if (!exact && Build.VERSION.SDK_INT >= 31) OutlinedButton(
-        onClick = { classSystemSettings(context, Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM) }, modifier = Modifier.fillMaxWidth()
+        shape = PocketShapes.Control, onClick = { classSystemSettings(context, Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM) }, modifier = Modifier.fillMaxWidth()
     ) { Text("允许准时提醒") }
     HorizontalDivider()
-    Text("3 · 声音与勿扰控制", fontWeight = FontWeight.Bold)
+    Text("3 · 声音与勿扰控制", fontWeight = FontWeight.Medium, style = tabularTextStyle())
     Text(if (policy) "已允许" else "未允许；只在预约静音或勿扰时需要，普通课前提醒不需要。", fontSize = 12.sp)
-    OutlinedButton(onClick = { classSystemSettings(context, Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) }, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(shape = PocketShapes.Control, onClick = { classSystemSettings(context, Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) }, modifier = Modifier.fillMaxWidth()) {
         Text(if (policy) "检查声音与勿扰授权" else "允许声音与勿扰控制")
     }
     if (policy) TextButton(onClick = { classSystemSettings(context, Settings.ACTION_SOUND_SETTINGS) }) {
@@ -148,12 +148,12 @@ internal fun classSystemSettings(context: Context, action: String, channel: Stri
 
 @Composable internal fun PermissionChecklist(revision: Int, notifications: () -> Unit) {
     val context = LocalContext.current
-    Text("安装后可在这里依次检查", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    Text("安装后可在这里依次检查", fontWeight = FontWeight.Medium, fontSize = 17.sp)
     Text("安卓的系统页面需要逐项确认；不同手机名称和位置可能不同。开启提醒后仍可随时回来检查。", fontSize = 13.sp)
     ClassPermissionControls(revision, notifications)
     HorizontalDivider()
-    Text("4 · 后台与省电", fontWeight = FontWeight.Bold)
+    Text("4 · 后台与省电", fontWeight = FontWeight.Medium, style = tabularTextStyle())
     Text("如提醒不稳定，请在应用信息中检查电池、后台运行或自启动限制，并按手机系统提示设置。系统未提供统一的状态判断，请在系统页面确认。", fontSize = 12.sp)
-    OutlinedButton(onClick = { classSystemSettings(context, Settings.ACTION_APPLICATION_DETAILS_SETTINGS) }, modifier = Modifier.fillMaxWidth()) { Text("打开应用信息") }
+    OutlinedButton(shape = PocketShapes.Control, onClick = { classSystemSettings(context, Settings.ACTION_APPLICATION_DETAILS_SETTINGS) }, modifier = Modifier.fillMaxWidth()) { Text("打开应用信息") }
     Text("锁屏显示需在上方两类通知中分别检查；如果通知被系统收纳，可在通知栏调整。状态显示不代表锁屏或后台设置已自动完成。", fontSize = 12.sp)
 }

@@ -19,7 +19,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
@@ -99,7 +98,7 @@ class ShareTimetableActivity : ComponentActivity() {
                 scanner.launch(ScanContract().createIntent(this, options))
             }
             BackHandler(enabled = screen != "home") { screen = "home" }
-            PocketTheme(preferences.themeAccent) {
+            PocketTheme(preferences.themeAccent, preferences.themeMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -107,7 +106,7 @@ class ShareTimetableActivity : ComponentActivity() {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回")
                             }
                             Text(if (screen == "view") receivedName.ifBlank { "收到的课表" } else "面对面分享课表",
-                                modifier = Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         AnimatedContent(targetState = screen,
@@ -122,35 +121,35 @@ class ShareTimetableActivity : ComponentActivity() {
                                 val image = remember(frames, page) { qrBitmap(frames[page]) }
                                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("请让对方在 NUIST Pocket 中扫码", fontWeight = FontWeight.Bold)
+                                    Text("请让对方在 NUIST Pocket 中扫码", fontWeight = FontWeight.Medium)
                                     Text("课表包含课程、地点、教师和上课时间，请只分享给你信任的人。")
-                                    Text("二维码自生成起 30 分钟内有效；过期后返回并重新生成。", fontSize = 13.sp)
-                                    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+                                    Text("二维码自生成起 30 分钟内有效；过期后返回并重新生成。", fontSize = 13.sp, style = tabularTextStyle())
+                                    PocketCard(shape = PocketShapes.Hero) {
                                         Image(image.asImageBitmap(), "课表二维码", Modifier.fillMaxWidth().padding(12.dp).aspectRatio(1f))
                                     }
-                                    Text("第 ${page + 1} 张，共 ${frames.size} 张", fontWeight = FontWeight.Medium)
+                                    Text("第 ${page + 1} 张，共 ${frames.size} 张", fontWeight = FontWeight.Medium, style = tabularTextStyle())
                                     if (frames.size > 1) Text("请依次扫描全部二维码；对方可在每次扫码后继续扫描下一张。", fontSize = 13.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                        OutlinedButton(enabled = page > 0, onClick = { page-- }) { Text("上一张") }
-                                        Button(enabled = page + 1 < frames.size, onClick = { page++ }) { Text("下一张") }
+                                        OutlinedButton(shape = PocketShapes.Control, enabled = page > 0, onClick = { page-- }) { Text("上一张") }
+                                        Button(shape = PocketShapes.Control, enabled = page + 1 < frames.size, onClick = { page++ }) { Text("下一张") }
                                     }
                                 }
                             }
                             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Text("分享与接收", fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                                Text("分享与接收", fontSize = 27.sp, lineHeight = 37.sp, fontWeight = FontWeight.SemiBold)
                                 Text("收到的课表独立保存，不影响你的课程和提醒。", fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+                                PocketCard(shape = PocketShapes.Hero) {
                                   Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("分享我的课表", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                                    Text("分享我的课表", fontWeight = FontWeight.Medium, fontSize = 17.sp)
                                     Text("面对面出示二维码，或传送一份课表文件。", fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Button(enabled = own != null, onClick = {
+                                    Button(shape = PocketShapes.Control, enabled = own != null, onClick = {
                                     frames = timetableShareFrames(encodeSharedTimetable(own!!))
                                     page = 0; screen = "show"
                                 }, modifier = Modifier.fillMaxWidth()) { Text("生成我的课表二维码") }
-                                    OutlinedButton(enabled = own != null, onClick = {
+                                    OutlinedButton(shape = PocketShapes.Control, enabled = own != null, onClick = {
                                     val folder = File(cacheDir, "timetable-share").apply { mkdirs() }
                                     val file = File(folder, "NUIST-Pocket-课表.txt")
                                     file.writeText(timetableShareFile(encodeSharedTimetable(own!!)), Charsets.UTF_8)
@@ -160,26 +159,26 @@ class ShareTimetableActivity : ComponentActivity() {
                                     startActivity(Intent.createChooser(intent, "分享课表文件"))
                                 }, modifier = Modifier.fillMaxWidth()) { Text("通过系统分享课表文件") }
                                     Text(if (own == null) "请先同步或导入自己的课表。" else "二维码和文件在生成后 30 分钟内可导入。", fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = tabularTextStyle())
                                   }
                                 }
-                                Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+                                PocketCard(shape = PocketShapes.Hero) {
                                   Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("接收别人的课表", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                    OutlinedButton(onClick = ::scan, modifier = Modifier.fillMaxWidth()) { Text("扫描对方的课表") }
-                                    OutlinedButton(onClick = {
+                                    Text("接收别人的课表", fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                                    OutlinedButton(shape = PocketShapes.Control, onClick = ::scan, modifier = Modifier.fillMaxWidth()) { Text("扫描对方的课表") }
+                                    OutlinedButton(shape = PocketShapes.Control, onClick = {
                                     filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"))
                                 }, modifier = Modifier.fillMaxWidth()) { Text("导入收到的课表文件") }
-                                    if (progress.isNotEmpty()) Text(progress, fontSize = 13.sp)
+                                    if (progress.isNotEmpty()) Text(progress, fontSize = 13.sp, style = tabularTextStyle())
                                   }
                                 }
                                 if (received != null) {
-                                    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+                                    PocketCard(shape = PocketShapes.Hero) {
                                       Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Text("已接收", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                                        Text(receivedName.ifBlank { "收到的课表" }, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                        Text(received!!.semester.code, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Button(onClick = { screen = "view" }, modifier = Modifier.fillMaxWidth()) { Text("查看课表") }
+                                        Text(receivedName.ifBlank { "收到的课表" }, fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                                        Text(received!!.semester.code, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, style = tabularTextStyle())
+                                        Button(shape = PocketShapes.Control, onClick = { screen = "view" }, modifier = Modifier.fillMaxWidth()) { Text("查看课表") }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             TextButton(onClick = { nameDraft = receivedName; editingName = true }) { Text("修改名称或备注") }
                                             TextButton(onClick = { confirmDelete = true }) { Text("删除") }
@@ -203,7 +202,7 @@ class ShareTimetableActivity : ComponentActivity() {
                         title = { Text("课表名称或备注") }, text = {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(value = nameDraft, onValueChange = { nameDraft = it },
-                                    label = { Text("例如：小明的课表") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                    shape = PocketShapes.Control, label = { Text("例如：小明的课表") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                 Text("仅保存在本机；留空显示“收到的课表”。", fontSize = 12.sp)
                             }
                         }, confirmButton = { TextButton(onClick = {

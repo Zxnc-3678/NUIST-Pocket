@@ -1,12 +1,10 @@
 package cn.nuist.pocket
 
-import android.app.DatePickerDialog
 import android.Manifest
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -16,24 +14,24 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.*
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
@@ -45,9 +43,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +78,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.*
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 private val Blue: Color @Composable get() = MaterialTheme.colorScheme.primary
 private val Ink: Color @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -93,12 +102,21 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val preferences = remember { AppPreferences(this) }
+            val wallpapers = rememberWallpaperSession()
             var track by remember { mutableStateOf(preferences.studentTrack) }
             var appearanceRevision by remember { mutableIntStateOf(0) }
             val accent = remember(appearanceRevision) { preferences.themeAccent }
-            PocketTheme(accent) {
+            val themeMode = remember(appearanceRevision) { preferences.themeMode }
+            val widgetAppearance = remember { WidgetAppearance(this) }
+            PocketTheme(accent, themeMode) {
+                val primary = MaterialTheme.colorScheme.primary.toArgb()
+                LaunchedEffect(primary) {
+                    if (widgetAppearance.syncAppPrimary(primary) && widgetAppearance.followAppAccent) {
+                        TodayWidgetProvider.requestRefresh(this@MainActivity)
+                    }
+                }
                 key(track) {
-                    PocketApp(navigation, preferences, appearanceRevision, { appearanceRevision++ }) { selected ->
+                    PocketApp(navigation, preferences, wallpapers, appearanceRevision, { appearanceRevision++ }) { selected ->
                         if (selected != track) {
                             preferences.studentTrack = selected
                             SchoolCache(this, selected).markLoginRequired()
@@ -128,7 +146,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences, appearanceRevision: Int, onAppearanceChange: () -> Unit,
+private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences, wallpapers: WallpaperSession,
+                      appearanceRevision: Int, onAppearanceChange: () -> Unit,
                       onTrackChange: (StudentTrack) -> Unit) {
     val context = LocalContext.current
     val track = preferences.studentTrack
@@ -147,9 +166,12 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
     }
     val store = remember { PocketStore(context, track) }
     val cache = remember { SchoolCache(context, track) }
-    val wallpaperStore = remember { WallpaperStore(context) }
-    val wallpaperVersion = remember(appearanceRevision) { wallpaperStore.version() }
+    val wallpaper = wallpapers.images
     val wallpaperFade = remember(appearanceRevision) { preferences.wallpaperFade / 100f }
+    val wallpaperScope = remember(appearanceRevision) { preferences.wallpaperScope }
+    val wallpaperBlur = remember(appearanceRevision) { preferences.timetableWallpaperBlur }
+    val scheduleMulticolor = remember(appearanceRevision) { preferences.scheduleMulticolor }
+    val timetableOpacity = remember(preferences) { TimetableOpacity(preferences) }
     val reminderScope = rememberCoroutineScope()
     var notificationRevision by remember { mutableIntStateOf(0) }
     var showNotificationIntro by rememberSaveable { mutableStateOf(false) }
@@ -200,12 +222,17 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
     var firstMonday by remember { mutableStateOf(store.firstMonday()) }
     var tab by rememberSaveable { mutableIntStateOf(preferences.homeTab.index) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
-    val needsWallpaper = tab == 3 || showSettings
-    val wallpaper by produceState<Bitmap?>(null, wallpaperVersion, needsWallpaper) {
-        value = if (needsWallpaper) withContext(Dispatchers.IO) { wallpaperStore.load() } else null
-    }
+    var settingsStartPage by rememberSaveable { mutableStateOf(SettingsPage.HOME) }
+    val globalWallpaper = wallpaperScope == WallpaperScope.IMMERSIVE
     var importing by remember { mutableStateOf(false) }
-    fun openSettings() { if (!schoolBusy && !importing) showSettings = true }
+    fun openSettingsPage(page: SettingsPage) {
+        if (!schoolBusy && !importing) {
+            settingsStartPage = page
+            showSettings = true
+        }
+    }
+    fun openSettings() = openSettingsPage(SettingsPage.HOME)
+    fun openSchoolAccount() = openSettingsPage(SettingsPage.ACCOUNT)
     var importError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -218,6 +245,14 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
     var openPendingTodos by rememberSaveable { mutableStateOf(false) }
     var todoOpenRevision by rememberSaveable { mutableIntStateOf(0) }
     var todoDate by rememberSaveable { mutableStateOf(today.toString()) }
+    var todoEditorEntry by rememberSaveable { mutableStateOf<String?>(null) }
+    fun openTodos(date: LocalDate, editor: String? = null) {
+        todoDate = date.toString()
+        openPendingTodos = false
+        todoEditorEntry = editor
+        todoOpenRevision++
+        showTodos = true
+    }
     fun loadTodos() {
         scope.launch { todoMutex.withLock {
             todoBusy = true; todoError = null
@@ -242,6 +277,11 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
             } finally { todoBusy = false }
         } }
     }
+    val todoActions = TodoActions(
+        save = { item, done -> changeTodos({ list -> list.filterNot { it.id == item.id } + item }, done) },
+        delete = { id, done -> changeTodos({ list -> list.filterNot { it.id == id } }, done) },
+        toggle = { item -> changeTodos({ list -> list.map { if (it.id == item.id) it.copy(completed = !it.completed) else it } }) },
+    )
     LaunchedEffect(Unit) { loadTodos() }
     var todayFocusGeneration by rememberSaveable { mutableIntStateOf(0) }
     var widgetDateRequest by rememberSaveable { mutableStateOf<String?>(null) }
@@ -250,7 +290,8 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
         if (launchRequest != null && navigation.consume(launchRequest)) {
             tab = track.visibleTab(launchRequest.tab); showSettings = false; widgetDateRequest = launchRequest.date
             if (launchRequest.todos) {
-                todoDate = launchRequest.date ?: today.toString(); openPendingTodos = true; todoOpenRevision++; showTodos = true
+                todoDate = launchRequest.date ?: today.toString(); openPendingTodos = true
+                todoEditorEntry = null; todoOpenRevision++; showTodos = true
             } else showTodos = false
             if (tab == 0) todayFocusGeneration++
         }
@@ -325,35 +366,101 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
             } finally { importing = false }
         }
     }
-    val courses = live?.courses ?: imported ?: demoCourses
     val periods = live?.periods ?: defaultPeriods
     val exams = live?.exams ?: demoExams
-    val semester = remember(live, courses, firstMonday) {
-        live?.semester ?: Semester(courses.firstOrNull()?.semester ?: "2026-2027-1", firstMonday)
+    val semester = remember(live, imported, firstMonday) {
+        live?.semester ?: Semester(imported?.firstOrNull()?.semester ?: DEFAULT_LOCAL_SEMESTER, firstMonday)
     }
+    val overrideStore = remember(track) { CourseOverrideStore(context, track) }
+    var rules by remember(track, semester.code, sessionGeneration) { mutableStateOf(overrideStore.load(semester.code)) }
+    val rawCourses = live?.courses ?: imported.orEmpty()
+    val ownCourses = remember(rawCourses, rules, semester.code) { applyCourseOverrides(rawCourses, semester.code, rules) }
+    val hasOwnSchedule = live != null || imported != null || rules.customCourses.isNotEmpty()
+    val demo = !hasOwnSchedule && previewMode
+    val courses = if (demo) demoCourses else ownCourses
+    val lastWeek = remember(rawCourses, courses, rules.sessions) {
+        maxOf(teachingWeekLimit(rawCourses), teachingWeekLimit(courses),
+            rules.sessions.keys.maxOfOrNull { it.week } ?: 0)
+    }
+    val rawNames = remember(rawCourses) { rawCourses.associate { it.courseKey to it.name } }
+    var initialCourseSheet by remember(semester.code, sessionGeneration) { mutableStateOf<CourseSheetPage?>(null) }
     var suspendedDates by remember(track, semester.code, sessionGeneration) { mutableStateOf(preferences.suspendedDates(track, semester.code)) }
-    fun setDaySuspended(date: LocalDate, suspended: Boolean) {
-        preferences.setSuspendedDate(track, semester.code, date, suspended)
-        suspendedDates = preferences.suspendedDates(track, semester.code)
+    fun refreshLocalSchedule() {
         TodayWidgetProvider.requestRefresh(context)
         ClassReminders.requestRefresh(context)
         reminderScope.launch(Dispatchers.IO) { EveningReminder.schedule(context) }
     }
+    fun setDaySuspended(date: LocalDate, suspended: Boolean) {
+        preferences.setSuspendedDate(track, semester.code, date, suspended)
+        suspendedDates = preferences.suspendedDates(track, semester.code)
+        refreshLocalSchedule()
+    }
+    val courseEdits = CourseEdits(rules, rawNames, ownCourses, lastWeek) { change ->
+        try {
+            rules = overrideStore.update(semester.code, change)
+            refreshLocalSchedule()
+            true
+        } catch (_: java.io.IOException) {
+            scope.launch { snackbar.showSnackbar("课程调整未保存，请重试。") }
+            false
+        }
+    }
     val schoolNotice = live?.let { "${if (!schoolConnected) "学校连接待验证 · " else ""}学校缓存 · 更新于 ${formatSchoolTime(it.fetchedAt)}" }
     val roomSemester = live?.semester ?: AcademicCalendar.semester(connectedTerm) ?: semester
 
-    Scaffold(
-        containerColor = Canvas,
+    val immersive = globalWallpaper && wallpaper != null
+    val globalViewport = remember { GlassViewport() }
+    val dark = LocalPocketDark.current
+    val canvasColor = Canvas
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val wallpaperPlacement = remember(globalViewport) { Modifier.onPlaced { globalViewport.coordinates = it } }
+    val topScrim = remember(dark, surfaceColor) {
+        Brush.verticalGradient(listOf(if (dark) Color.Black.copy(alpha = 0.62f) else surfaceColor.copy(alpha = 0.78f),
+            Color.Transparent))
+    }
+    val bottomScrim = remember(dark, surfaceColor) {
+        Brush.verticalGradient(listOf(Color.Transparent,
+            if (dark) Color.Black.copy(alpha = 0.72f) else surfaceColor.copy(alpha = 0.85f)))
+    }
+    val bodyScrim = remember(dark, canvasColor) {
+        val shade = canvasColor.copy(alpha = if (dark) 0.20f else 0.13f)
+        Brush.verticalGradient(0f to Color.Transparent, 0.15f to shade, 0.92f to shade, 1f to Color.Transparent)
+    }
+    val window = LocalActivity.current?.window
+    DisposableEffect(window, immersive) {
+        val previous = window?.isNavigationBarContrastEnforced
+        if (immersive && window != null) window.isNavigationBarContrastEnforced = false
+        onDispose {
+            if (immersive && window != null && previous != null) window.isNavigationBarContrastEnforced = previous
+        }
+    }
+    Box(Modifier.fillMaxSize().background(canvasColor)) {
+      if (immersive) {
+        TimetableWallpaper(wallpaper?.original, wallpaperFade, wallpaperBlur, wallpaperPlacement)
+        val statusHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Box(Modifier.matchParentSize().padding(top = statusHeight + 52.dp, bottom = navigationInset + 80.dp)
+            .background(bodyScrim))
+        Box(Modifier.fillMaxWidth().height(statusHeight + 92.dp).background(topScrim))
+      }
+      CompositionLocalProvider(LocalPocketImmersive provides immersive) {
+      Scaffold(
+        containerColor = if (immersive) Color.Transparent else canvasColor,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            val background = if (immersive) Modifier.background(bottomScrim) else Modifier
+            NavigationBar(modifier = background, containerColor = if (immersive) Color.Transparent else surfaceColor,
+                tonalElevation = 0.dp) {
                 listOf(Triple(0, "日程", Icons.Outlined.Home), Triple(3, "课程表", Icons.Outlined.DateRange),
                     Triple(1, "教室", Icons.Outlined.Place), Triple(2, "考试", Icons.AutoMirrored.Outlined.List))
                     .filter { (index, _, _) -> track.isTabVisible(index) }.forEach { (index, title, icon) ->
                     NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                        icon = { Icon(icon, contentDescription = title) }, label = { Text(title) },
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = SoftBlue, selectedIconColor = Blue,
-                            selectedTextColor = Blue, unselectedIconColor = Muted, unselectedTextColor = Muted))
+                        icon = { PocketNavigationIcon(icon, title, tab == index) }, label = { Text(title) },
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent, selectedIconColor = Blue,
+                            selectedTextColor = if (immersive) Ink else Blue,
+                            unselectedIconColor = if (immersive) Ink else Muted,
+                            unselectedTextColor = if (immersive) Ink else Muted))
                 }
             }
         },
@@ -362,23 +469,21 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
             // Account/source changes dispose previous queries and their saved tab state.
             key(sessionGeneration) {
               val tabStates = rememberSaveableStateHolder()
-              AnimatedContent(targetState = tab, transitionSpec = {
-                  val order = listOf(0, 3, 1, 2)
-                  val direction = if (order.indexOf(targetState) >= order.indexOf(initialState)) 1 else -1
-                  (fadeIn(tween(180)) + slideInHorizontally(tween(180)) { direction * (it / 12) }) togetherWith
-                      (fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { -direction * (it / 18) })
+              AnimatedContent(targetState = tab, modifier = Modifier.fillMaxSize(), transitionSpec = {
+                  fadeIn(tween(150)) togetherWith fadeOut(tween(120))
               }, label = "主页面切换") { displayedTab ->
               tabStates.SaveableStateProvider(displayedTab) {
                 when (displayedTab) {
-                    0 -> if (live == null && imported == null && !previewMode) {
+                    0 -> if (!hasOwnSchedule && !previewMode && todos.orEmpty().isEmpty()) {
                         FirstUseScreen(schoolConnected, busy = schoolBusy || importing, onConnect = { if (schoolConnected) syncSchool() else startSchoolLogin() },
                             onPreview = { previewMode = true; sessionGeneration++ },
-                            pageTitle = "日程", onSettings = ::openSettings, settingsEnabled = !schoolBusy && !importing,
-                            todoContent = { TodoPreview(todos, today, todoError) { todoDate = today.toString(); openPendingTodos = false; showTodos = true } })
+                            pageTitle = "日程", onSettings = ::openSettings, onSwitchTrack = ::openSchoolAccount, settingsEnabled = !schoolBusy && !importing,
+                            todoContent = { TodoPreview(todos, today, todoError) { openTodos(today) } })
                     } else key(todayFocusGeneration) {
-                        ScheduleScreen(courses, periods, semester, now, live == null && imported == null, schoolNotice,
+                        ScheduleScreen(courses, periods, semester, now, demo, schoolNotice,
                             widgetDateRequest?.let(LocalDate::parse), todos, todoError, ::openSettings, !schoolBusy && !importing,
-                            suspendedDates, ::setDaySuspended) { date -> todoDate = date.toString(); openPendingTodos = false; showTodos = true }
+                            suspendedDates, ::setDaySuspended, scheduleMulticolor, if (demo) null else courseEdits,
+                            todoBusy, todoActions.toggle, onEditTodo = { openTodos(it.date, it.id) }, onTodos = ::openTodos)
                     }
                     1 -> if (track.supportsRooms) RoomsScreen(rooms, periods, roomSemester, api,
                         schoolConnected && AcademicCalendar.semester(connectedTerm) != null, today, previewMode,
@@ -386,28 +491,38 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
                         onSettings = ::openSettings, settingsEnabled = !schoolBusy && !importing)
                     2 -> if (live == null && !previewMode) {
                         FirstUseScreen(schoolConnected, busy = schoolBusy || importing, onConnect = { if (schoolConnected) syncSchool() else startSchoolLogin() },
-                            onPreview = { previewMode = true; sessionGeneration++ }, pageTitle = "考试", onSettings = ::openSettings, settingsEnabled = !schoolBusy && !importing)
+                            onPreview = { previewMode = true; sessionGeneration++ }, pageTitle = "考试", onSettings = ::openSettings, onSwitchTrack = ::openSchoolAccount, settingsEnabled = !schoolBusy && !importing)
                     } else ExamsScreen(exams, now, schoolNotice, ::openSettings, !schoolBusy && !importing)
-                    3 -> if (live == null && imported == null && !previewMode) {
+                    3 -> if (!hasOwnSchedule && !previewMode) {
                         FirstUseScreen(schoolConnected, busy = schoolBusy || importing, onConnect = { if (schoolConnected) syncSchool() else startSchoolLogin() },
-                            onPreview = { previewMode = true; sessionGeneration++ }, pageTitle = "课程表", onSettings = ::openSettings, settingsEnabled = !schoolBusy && !importing)
-                    } else TimetableScreen(courses, periods, semester, today, live == null && imported == null, preferences, ::openSettings, !schoolBusy && !importing, wallpaper, wallpaperFade, suspendedDates)
+                            onPreview = { previewMode = true; sessionGeneration++ }, pageTitle = "课程表", onSettings = ::openSettings, onSwitchTrack = ::openSchoolAccount, settingsEnabled = !schoolBusy && !importing,
+                            onAddCourse = {
+                                val date = if (semester.weekOn(today) in 1..lastWeek) today else semester.firstMonday
+                                initialCourseSheet = newCourseSheet(date, 1, periods)
+                            })
+                    } else TimetableScreen(courses, periods, semester, today, demo, preferences, ::openSettings, !schoolBusy && !importing,
+                        wallpaper, wallpaperFade, suspendedDates, appearanceRevision = appearanceRevision, opacity = timetableOpacity,
+                        edits = if (demo) null else courseEdits, immersiveViewport = if (immersive) globalViewport else null)
                 }
               }
               }
             }
         }
+      }
+      }
     }
-    if (showTodos) key(todoOpenRevision) { TodoScreen(todos, LocalDate.parse(todoDate), today, openPendingTodos, todoBusy, todoError, ::loadTodos,
-        TodoActions(
-            save = { item, done -> changeTodos({ list -> list.filterNot { it.id == item.id } + item }, done) },
-            delete = { id, done -> changeTodos({ list -> list.filterNot { it.id == id } }, done) },
-            toggle = { item -> changeTodos({ list -> list.map { if (it.id == item.id) it.copy(completed = !it.completed) else it } }) },
-        )) { showTodos = false } }
+    CourseSheets(initialCourseSheet, { initialCourseSheet = it }, courseEdits, semester, periods, today,
+        semester.weekOn(today).coerceIn(1, lastWeek))
+    if (showTodos) key(todoOpenRevision) {
+        TodoScreen(todos, LocalDate.parse(todoDate), today, openPendingTodos, todoBusy, todoError, ::loadTodos,
+            todoActions, initialEditor = todoEditorEntry) { showTodos = false }
+    }
     if (showSettings) SettingsScreen(preferences,
         SettingsStatus(schoolConnected, schoolBusy, importing,
             live?.let { "${it.semester.code} · ${formatSchoolTime(it.fetchedAt)}" }, imported != null, live?.semester?.firstMonday ?: firstMonday, previewMode,
-            track, connectedTerm),
+            track, connectedTerm,
+            calendarDate = if (track == StudentTrack.GRADUATE) connectedTerm?.let { graduateFirstMonday(it, preferences.graduateMonday(it)) }
+                ?: live?.semester?.firstMonday ?: firstMonday else firstMonday),
         SettingsActions(
             close = { showSettings = false }, login = { startSchoolLogin() }, sync = { syncSchool() },
             logout = {
@@ -433,26 +548,22 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
                 showSettings = false
                 importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
             },
-            calendar = {
-                val calendarDate = if (track == StudentTrack.GRADUATE) connectedTerm?.let { graduateFirstMonday(it, preferences.graduateMonday(it)) }
-                    ?: live?.semester?.firstMonday ?: firstMonday else firstMonday
-                DatePickerDialog(context, { _, year, month, day ->
-                    val selected = LocalDate.of(year, month + 1, day)
-                    if (selected.dayOfWeek == DayOfWeek.MONDAY) {
-                        if (track == StudentTrack.GRADUATE) {
-                            val code = connectedTerm ?: live?.semester?.code
-                            if (code != null) {
-                                preferences.saveGraduateMonday(code, selected)
-                                live?.takeIf { it.semester.code == code }?.let { current ->
-                                    val changed = current.copy(semester = current.semester.copy(firstMonday = selected))
-                                    cache.save(changed, verified = false)
-                                    live = changed
-                                }
-                            } else scope.launch { snackbar.showSnackbar("请先登录并验证当前研究生学期") }
-                        }
-                        firstMonday = selected; store.saveFirstMonday(selected)
-                    } else scope.launch { snackbar.showSnackbar("请选择第一教学周的周一") }
-                }, calendarDate.year, calendarDate.monthValue - 1, calendarDate.dayOfMonth).show()
+            calendar = { selected ->
+                if (selected.dayOfWeek == DayOfWeek.MONDAY) {
+                    if (track == StudentTrack.GRADUATE) {
+                        val code = connectedTerm ?: live?.semester?.code
+                        if (code != null) {
+                            preferences.saveGraduateMonday(code, selected)
+                            live?.takeIf { it.semester.code == code }?.let { current ->
+                                val changed = current.copy(semester = current.semester.copy(firstMonday = selected))
+                                cache.save(changed, verified = false)
+                                live = changed
+                            }
+                        } else scope.launch { snackbar.showSnackbar("请先登录并验证当前研究生学期") }
+                    }
+                    firstMonday = selected
+                    store.saveFirstMonday(selected)
+                } else scope.launch { snackbar.showSnackbar("请选择第一教学周的周一") }
             },
             clearImport = { store.clear(); imported = null; sessionGeneration++; firstMonday = store.firstMonday(); showSettings = false },
             preview = { previewMode = !previewMode; sessionGeneration++; showSettings = false },
@@ -460,7 +571,7 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
             permission = { askForNotifications() },
             reminder = { reminderScope.launch(Dispatchers.IO) { refreshReminders(context) } },
             appearance = onAppearanceChange,
-        ), notificationRevision, wallpaper, onTrackChange)
+        ), notificationRevision, wallpapers, timetableOpacity, today, settingsStartPage, onTrackChange)
     if (releasePending && !showSettings && !showTodos && !schoolBusy && !importing && importError == null) {
         ReleaseHighlights {
             preferences.seenReleaseVersion = BuildConfig.VERSION_CODE
@@ -470,7 +581,7 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
     if (showNotificationIntro && !releasePending && !showSettings && !showTodos && !schoolBusy && !importing && importError == null) AlertDialog(onDismissRequest = {
         preferences.permissionAsked = true; showNotificationIntro = false
     }, title = { Text("晚间看看明天的安排") }, text = {
-        Text("每天21:00左右提醒明天第一节课；没有已排课程时送上一句晚安。使用本机课表，无需闹钟权限。可在设置中调整时间或关闭，需要你允许系统通知。")
+        Text("每天21:00左右提醒明天第一节课；没有已排课程时送上一句晚安。使用本机课表，无需闹钟权限。可在设置中调整时间或关闭，需要你允许系统通知。", style = tabularTextStyle())
     }, confirmButton = { TextButton(onClick = { showNotificationIntro = false; askForNotifications() }) { Text("允许通知") } },
         dismissButton = { TextButton(onClick = { preferences.permissionAsked = true; showNotificationIntro = false }) { Text("稍后再说") } })
     if (importError != null) AlertDialog(onDismissRequest = { importError = null },
@@ -501,13 +612,13 @@ private fun formatSchoolTime(instant: String): String = runCatching {
 
 @Composable
 private fun FirstUseScreen(connected: Boolean, busy: Boolean, onConnect: () -> Unit, onPreview: () -> Unit,
-                           pageTitle: String, onSettings: () -> Unit, settingsEnabled: Boolean,
-                           todoContent: (@Composable () -> Unit)? = null) {
+                           pageTitle: String, onSettings: () -> Unit, onSwitchTrack: () -> Unit, settingsEnabled: Boolean,
+                           todoContent: (@Composable () -> Unit)? = null, onAddCourse: (() -> Unit)? = null) {
     val track = AppPreferences(LocalContext.current).studentTrack
     Column(Modifier.fillMaxSize()) {
       PocketPageHeader(onSettings, settingsEnabled, sideWidth = 48.dp,
           leading = { Icon(Icons.Outlined.Home, null, Modifier.padding(12.dp).size(24.dp), tint = Blue) }) {
-          Text(pageTitle, fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1)
+          Text(pageTitle, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 28.sp, maxLines = 1)
       }
       LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -516,17 +627,19 @@ private fun FirstUseScreen(connected: Boolean, busy: Boolean, onConnect: () -> U
         }
         if (todoContent != null) item(key = "personal-todos") { todoContent() }
         item {
-            Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+            PocketCard(shape = PocketShapes.Hero) {
                 Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("当前：${track.title}", modifier = Modifier.weight(1f), fontSize = 13.sp, color = Muted)
-                        TextButton(enabled = settingsEnabled, onClick = onSettings) { Text("切换培养类型") }
+                        TextButton(enabled = settingsEnabled, onClick = onSwitchTrack) { Text("切换培养类型") }
                     }
                     Text(if (connected) "登录已验证，同步后就能查看安排。" else "连接学校账号，保存自己的课表和考试。", color = Muted, fontSize = 14.sp)
-                    Button(enabled = !busy, onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
+                    Button(shape = PocketShapes.Control, enabled = !busy, onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
                         Text(if (busy) "请稍候…" else if (connected) "同步课表和考试" else "登录学校账号")
                     }
                     TextButton(enabled = !busy, onClick = onPreview, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("先看看演示") }
+                    if (onAddCourse != null) OutlinedButton(onClick = onAddCourse, enabled = !busy, shape = PocketShapes.Control,
+                        modifier = Modifier.fillMaxWidth()) { Text("添加自定义课程") }
                     Text("演示课程和考试均为虚构数据。待办无需登录，可随时在日程中使用。", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
                     HorizontalDivider()
                     QuickStartSteps()
@@ -539,7 +652,7 @@ private fun FirstUseScreen(connected: Boolean, busy: Boolean, onConnect: () -> U
 
 @Composable
 private fun PageHeading(title: String, status: String, info: String, onSettings: () -> Unit,
-                        settingsEnabled: Boolean, action: (@Composable () -> Unit)? = null) {
+                        settingsEnabled: Boolean) {
     var showInfo by rememberSaveable { mutableStateOf(false) }
     PocketPageHeader(onSettings, settingsEnabled, leading = {
         if (status == "学校缓存") {
@@ -553,11 +666,11 @@ private fun PageHeading(title: String, status: String, info: String, onSettings:
                 Icon(Icons.Outlined.Info, contentDescription = "数据与说明", Modifier.size(16.dp))
             }
         }
-    }, action = { action?.invoke() }) {
-        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, maxLines = 1)
+    }) {
+        Text(title, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = Ink, maxLines = 1)
     }
     if (showInfo) AlertDialog(onDismissRequest = { showInfo = false }, title = { Text("$title · 信息") },
-        text = { Text(info, Modifier.verticalScroll(rememberScrollState()), lineHeight = 22.sp) },
+        text = { Text(info, Modifier.verticalScroll(rememberScrollState()), lineHeight = 22.sp, style = tabularTextStyle()) },
         confirmButton = { TextButton(onClick = { showInfo = false }) { Text("知道了") } })
 }
 
@@ -570,17 +683,21 @@ private fun schoolStatus(notice: String?): String = when {
 @Composable
 private fun SectionHeading(title: String, subtitle: String) {
     Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
-        Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Ink)
-        Text(subtitle, fontSize = 13.sp, color = Muted, modifier = Modifier.padding(top = 4.dp))
+        Text(title, fontSize = 28.sp, lineHeight = 38.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+        Text(subtitle, fontSize = 13.sp, color = Muted, modifier = Modifier.padding(top = 4.dp), style = tabularTextStyle())
     }
 }
 
 @Composable
 private fun ScheduleScreen(courses: List<CourseSlot>, periods: List<Period>, semester: Semester, now: LocalDateTime, demo: Boolean, schoolNotice: String? = null, focusDate: LocalDate? = null,
                            todos: List<TodoItem>?, todoError: String?, onSettings: () -> Unit, settingsEnabled: Boolean,
-                           suspendedDates: Set<LocalDate>, onSuspend: (LocalDate, Boolean) -> Unit, onTodos: (LocalDate) -> Unit) {
+                           suspendedDates: Set<LocalDate>, onSuspend: (LocalDate, Boolean) -> Unit,
+                           multicolor: Boolean, courseEdits: CourseEdits?, todoBusy: Boolean,
+                           onToggleTodo: (TodoItem) -> Unit, onEditTodo: (TodoItem) -> Unit,
+                           onTodos: (LocalDate, String?) -> Unit) {
     val today = now.toLocalDate()
-    val maxWeek = remember(courses) { maxOf(20, courses.flatMap { it.weeks }.maxOrNull() ?: 20) }
+    val dayIndicatorHeight = with(LocalDensity.current) { 18.sp.toDp() }
+    val maxWeek = courseEdits?.lastWeek ?: teachingWeekLimit(courses)
     var week by rememberSaveable(semester.code, semester.firstMonday.toString()) {
         mutableIntStateOf(semester.weekOn(focusDate ?: today).coerceIn(1, maxWeek))
     }
@@ -594,33 +711,52 @@ private fun ScheduleScreen(courses: List<CourseSlot>, periods: List<Period>, sem
         }
         previousToday = today.toString()
     }
-    var selected by remember { mutableStateOf<CourseSlot?>(null) }
-    var selectedGroup by remember { mutableStateOf<OverviewCourseGroup?>(null) }
+    var courseSheet by remember(semester.code) { mutableStateOf<CourseSheetPage?>(null) }
     val overview = remember(courses) { overviewCourses(courses) }
     val active = remember(overview, week) { overview.filter { week in it.weeks } }
     val date = semester.dateOf(week, selectedDay)
+    var previousDate by remember { mutableStateOf(date) }
+    val (direction, dateProgress) = remember(date) {
+        val change = date.compareTo(previousDate).coerceIn(-1, 1)
+        change to Animatable(if (change == 0) 1f else 0f)
+    }
+    LaunchedEffect(date) {
+        previousDate = date
+        dateProgress.animateTo(1f, tween(200))
+    }
+    val dayMotion = Modifier.graphicsLayer {
+        val progress = dateProgress.value
+        translationX = direction * 18.dp.toPx() * (1f - progress)
+        alpha = progress
+    }
+    val immersive = LocalPocketImmersive.current
+    val statusBadge = if (immersive) {
+        val fill = MaterialTheme.colorScheme.surface.copy(alpha = if (LocalPocketDark.current) 0.62f else 0.66f)
+        Modifier.background(fill, CircleShape).padding(horizontal = 8.dp, vertical = 3.dp)
+    } else Modifier
     val dayCourses = remember(active, selectedDay, date, suspendedDates) {
         if (date in suspendedDates) emptyList() else active.filter { it.weekday == selectedDay }.sortedBy { it.firstPeriod }
     }
     val unassigned = remember(courses) { courses.filterNot { it.arranged } }
-    val (finished, remaining) = remember(dayCourses, periods, date, now) {
-        dayCourses.withIndex().partition { courseHasEndedToday(it.value, periods, date, now) }
+    val finishedCount = remember(dayCourses, periods, date, now) {
+        dayCourses.count { courseHasEndedToday(it, periods, date, now) }
     }
-    var showFinished by rememberSaveable(date.toString()) { mutableStateOf(false) }
+    val dayTodos = remember(todos, date) { todos.orEmpty().filter { it.date == date }.sortedWith(todoOrder) }
+    val timeline = remember(dayCourses, dayTodos, periods) {
+        val entries: List<DayTimelineEntry> = dayCourses.mapIndexed { index, slot -> DayTimelineEntry.Course(slot, index, slot.times(periods).first) } +
+            dayTodos.filter { it.time != null }.map { DayTimelineEntry.Task(it) }
+        entries.sortedBy { it.time ?: LocalTime.MAX }
+    }
     var choosingWeek by rememberSaveable { mutableStateOf(false) }
     var showDayActions by remember(date) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth()) {
-            PageHeading("日程", if (schoolNotice != null) schoolStatus(schoolNotice) else if (demo) "演示" else "本机课表",
-                schoolNotice ?: if (demo) "演示课表，均为虚构课程，未连接学校账号。" else "本机导入课表，离线显示，未自动同步学校。",
-                onSettings, settingsEnabled,
-                action = { FilledTonalButton(onClick = { onTodos(date) }, modifier = Modifier.defaultMinSize(minWidth = 1.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp)) { Text("待办", fontSize = 12.sp) } })
-        }
+        PageHeading("日程", if (schoolNotice != null) schoolStatus(schoolNotice) else if (demo) "演示" else "本机课表",
+            schoolNotice ?: if (demo) "演示课表，均为虚构课程，未连接学校账号。" else "本机导入课表，离线显示，未自动同步学校。",
+            onSettings, settingsEnabled)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 22.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "week-picker", contentType = "week-picker") {
-            Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+            PocketCard(shape = PocketShapes.Hero) {
                 Column(Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(enabled = week > 1, onClick = { week-- }) {
@@ -638,14 +774,26 @@ private fun ScheduleScreen(courses: List<CourseSlot>, periods: List<Period>, sem
                             val d = semester.dateOf(week, day)
                             val chosen = selectedDay == day
                             val dayColor by animateColorAsState(if (chosen) Blue else Color.Transparent, animationSpec = tween(170), label = "日期选择")
+                            val selectionScale = animateFloatAsState(if (chosen) 1f else 0.965f, tween(170), label = "选中日期缩放")
+                            val press = rememberPocketPress()
                             Surface(onClick = { selectedDay = day }, color = dayColor,
-                                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                                shape = PocketShapes.Control, interactionSource = press.interaction,
+                                modifier = press.modifier(Modifier.weight(1f)).graphicsLayer {
+                                    scaleX = selectionScale.value
+                                    scaleY = selectionScale.value
+                                }) {
                                 Column(Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(DayNames[day - 1], fontSize = 12.sp, color = if (chosen) MaterialTheme.colorScheme.onPrimary else Muted)
-                                    Text(d.dayOfMonth.toString(), fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                                        color = if (chosen) MaterialTheme.colorScheme.onPrimary else Ink)
-                                    Text(if (d == today) "今天" else if ((d !in suspendedDates && active.any { it.weekday == day }) || todos.orEmpty().any { it.date == d && !it.completed }) "•" else " ",
-                                        fontSize = 10.sp, color = if (chosen) MaterialTheme.colorScheme.onPrimary else Blue)
+                                    Text(DayNames[day - 1], fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (chosen) MaterialTheme.colorScheme.onPrimary else Muted)
+                                    Text(d.dayOfMonth.toString(), fontSize = 18.sp, fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (chosen) MaterialTheme.colorScheme.onPrimary else Ink, style = tabularTextStyle())
+                                    val indicatorColor = if (chosen) MaterialTheme.colorScheme.onPrimary else Blue
+                                    Box(Modifier.height(dayIndicatorHeight), contentAlignment = Alignment.Center) {
+                                        if (d == today) {
+                                            Text("今天", fontSize = 10.sp, lineHeight = 14.sp, color = indicatorColor)
+                                        } else if ((d !in suspendedDates && active.any { it.weekday == day }) || todos.orEmpty().any { it.date == d && !it.completed }) {
+                                            Box(Modifier.size(4.dp).background(indicatorColor, CircleShape))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -657,14 +805,16 @@ private fun ScheduleScreen(courses: List<CourseSlot>, periods: List<Period>, sem
             }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("${date.format(ShortDate)} · 星期${DayNames[selectedDay - 1]}", fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f), fontSize = 17.sp)
-                Text(if (date in suspendedDates) "已停课" else if (finished.isNotEmpty() && remaining.isEmpty()) "已上完" else if (finished.isNotEmpty()) "剩余${remaining.size}门" else "${dayCourses.size} 门课程",
-                    color = if (date in suspendedDates) Blue else Muted, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().then(dayMotion)) {
+                Text("${date.format(ShortDate)} · 星期${DayNames[selectedDay - 1]}", fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f), fontSize = 17.sp, lineHeight = 24.sp, style = tabularTextStyle())
+                Text(if (date in suspendedDates) "已停课" else if (dayCourses.isNotEmpty() && finishedCount == dayCourses.size) "已上完"
+                    else if (finishedCount > 0) "剩余${dayCourses.size - finishedCount}门" else "${dayCourses.size} 门课程",
+                    modifier = statusBadge, color = if (date in suspendedDates) Blue else if (immersive) Ink else Muted,
+                    fontSize = 12.sp, fontWeight = if (immersive) FontWeight.Medium else null, style = tabularTextStyle())
                 if (!demo) Box {
                     IconButton(onClick = { showDayActions = true }) {
-                        Icon(Icons.Outlined.MoreVert, "当天操作", tint = Muted)
+                        Icon(Icons.Outlined.MoreVert, "当天操作", tint = if (immersive) Ink else Muted)
                     }
                     DropdownMenu(expanded = showDayActions, onDismissRequest = { showDayActions = false }) {
                         DropdownMenuItem(text = { Text(if (date in suspendedDates) "恢复当天课程与提醒" else "当天全部停课") },
@@ -673,92 +823,70 @@ private fun ScheduleScreen(courses: List<CourseSlot>, periods: List<Period>, sem
                 }
             }
         }
-        if (dayCourses.isEmpty()) item { EmptyCard(if (date in suspendedDates) "当天已设置停课" else "这一天没有排课", if (date in suspendedDates) "课程提醒已暂停，相关声音预约已取消；恢复课程后需要重新预约。" else "试试切换星期或教学周。", Icons.Outlined.CheckCircle) }
-        items(remaining, key = { "${it.value.id}#${it.index}" }, contentType = { "course" }) { row ->
-            DayCourseCard(row.value, periods, false) { selected = row.value }
+        if (date in suspendedDates) item {
+            Box(dayMotion) {
+                EmptyCard("当天已设置停课", "课程提醒已暂停，相关声音预约已取消；恢复课程后需要重新预约。", Icons.Outlined.CheckCircle)
+            }
         }
-        if (finished.isNotEmpty()) {
-            item(key = "finished-toggle", contentType = "finished-toggle") {
-            Surface(onClick = { showFinished = !showFinished }, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(14.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("已结束 · ${finished.size}门", Modifier.weight(1f), color = Muted, fontSize = 14.sp)
-                        Text(if (showFinished) "收起" else "展开", color = Blue, fontSize = 13.sp)
-                    }
+        item(key = "all-day-todos", contentType = "todos") {
+            AllDayTodos(dayTodos.filter { it.time == null }, todoBusy, todoError, todos != null, onToggleTodo, onEditTodo,
+                onAdd = { onTodos(date, "") }, onOpen = { onTodos(date, null) }, modifier = dayMotion)
+        }
+        if (timeline.isEmpty() && date !in suspendedDates) item {
+            Box(dayMotion) { EmptyCard("这一天没有定时安排", "可以添加待办，或切换到其他日期。", Icons.Outlined.CheckCircle) }
+        }
+        items(timeline, key = { it.key }, contentType = { if (it is DayTimelineEntry.Course) "course" else "timed-todo" }) { row ->
+            when (row) {
+                is DayTimelineEntry.Course -> DayCourseCard(row.slot, periods,
+                    finished = courseHasEndedToday(row.slot, periods, date, now), multicolor = multicolor, modifier = dayMotion) {
+                    courseSheet = CourseSheetPage.Details(listOf(OverviewCourseGroup(listOf(row.slot))), week)
                 }
-            }
-            if (showFinished) items(finished, key = { "${it.value.id}#${it.index}" }, contentType = { "course" }) { row ->
-                DayCourseCard(row.value, periods, true) { selected = row.value }
+                is DayTimelineEntry.Task -> TimedTodoCard(row.item, todoBusy, onToggleTodo, onEditTodo, modifier = dayMotion)
             }
         }
-        item(key = "personal-todos", contentType = "todos") { TodoPreview(todos, date, todoError) { onTodos(date) } }
         if (unassigned.isNotEmpty()) item(key = "unassigned", contentType = "unassigned") {
-            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(16.dp)) {
+            PocketCard(color = MaterialTheme.colorScheme.tertiaryContainer) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("待排时间 · ${unassigned.size}条", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(unassigned.joinToString("、") { it.name }, color = Muted, fontSize = 12.sp)
+                    Text("待排时间 · ${unassigned.size}条", fontWeight = FontWeight.Medium, fontSize = 14.sp, style = tabularTextStyle())
+                    Text(unassigned.joinToString("、") { it.displayName }, color = Muted, fontSize = 12.sp)
                 }
             }
         }
-        item(key = "week-overview", contentType = "week-overview") { WeekOverview(overview, week, semester, suspendedDates, onSelect = { selectedGroup = it }) }
+        item(key = "week-overview", contentType = "week-overview") {
+            WeekOverview(overview, week, semester, suspendedDates,
+                onSelect = { courseSheet = CourseSheetPage.Details(listOf(it), week) })
+        }
         }
     }
     if (choosingWeek) TeachingWeekPicker(week, maxWeek, semester, today,
         onSelect = { week = it; choosingWeek = false }, onDismiss = { choosingWeek = false })
-    selectedGroup?.let { group ->
-        val course = group.course
-        AlertDialog(onDismissRequest = { selectedGroup = null }, title = { Text(course.name) }, text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("星期${DayNames[(course.weekday ?: 1) - 1]} · 第${course.firstPeriod}–${course.lastPeriod}节")
-                Text("各周安排", fontWeight = FontWeight.Bold)
-                group.placements.sortedWith(compareByDescending<CourseSlot> { week in it.weeks }.thenBy { it.weeks.minOrNull() }).forEach { placement ->
-                    val times = placement.times(periods)
-                    Surface(color = if (week in placement.weeks) SoftBlue else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(if (week in placement.weeks) "第${week}周上课" else "非本周安排", color = if (week in placement.weeks) Blue else Muted, fontSize = 12.sp)
-                            Text(formatCourseWeeks(placement.weeks), fontSize = 13.sp)
-                            Text("地点：${placement.room.ifBlank { "待定" }}", fontSize = 13.sp)
-                            Text("教师：${placement.teacher.ifBlank { "待定" }}", fontSize = 13.sp)
-                            Text("${times.first ?: "待定"} – ${times.second ?: "待定"}", fontSize = 13.sp, color = Muted)
-                        }
-                    }
-                }
-            }
-        }, confirmButton = { TextButton(onClick = { selectedGroup = null }) { Text("完成") } })
-    }
-    selected?.let { course ->
-        val times = course.times(periods)
-        AlertDialog(onDismissRequest = { selected = null }, title = { Text(course.name) }, text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (week !in course.weeks) Text("非本周课程 · 第${week}周不上课", color = Muted, fontSize = 13.sp)
-                Text("星期${DayNames[(course.weekday ?: 1) - 1]} · 第${course.firstPeriod}–${course.lastPeriod}节")
-                Text("${times.first ?: "待定"} – ${times.second ?: "待定"}")
-                Text("地点：${course.room.ifBlank { "待定" }}")
-                Text("教师：${course.teacher.ifBlank { "待定" }}")
-                Text("上课周次：${formatCourseWeeks(course.weeks)}", color = Muted, fontSize = 13.sp)
-                if (periods.any { !it.enabled && it.number in (course.firstPeriod ?: 0)..(course.lastPeriod ?: 0) }) {
-                    Text("课程包含未启用节次，请核对学校安排。", color = Blue, fontSize = 12.sp)
-                }
-            }
-        }, confirmButton = { TextButton(onClick = { selected = null }) { Text("完成") } })
-    }
+    CourseSheets(courseSheet, { courseSheet = it }, courseEdits, semester, periods, today, week)
 }
 
 @Composable
-private fun DayCourseCard(course: CourseSlot, periods: List<Period>, finished: Boolean, onClick: () -> Unit) {
+private fun DayCourseCard(course: CourseSlot, periods: List<Period>, finished: Boolean, multicolor: Boolean,
+                          modifier: Modifier = Modifier, onClick: () -> Unit) {
     val times = remember(course, periods) { course.times(periods) }
-    val accent = if (finished) Muted else Blue
-    Surface(onClick = onClick, color = if (finished) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    val accent = if (multicolor) courseAccentColor(course.code, course.name, LocalPocketDark.current, course.customColorHex) else Blue
+    PocketCard(onClick = onClick, modifier = modifier) {
+        Row(Modifier.fillMaxWidth().alpha(if (finished) 0.50f else 1f).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.width(62.dp)) {
-                Text(times.first?.toString() ?: "待定", color = accent, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text(times.second?.toString() ?: "待定", color = Muted, fontSize = 12.sp)
+                Text(times.first?.toString() ?: "待定", color = Blue, fontWeight = FontWeight.Bold, fontSize = 17.sp, style = tabularTextStyle())
+                Text(times.second?.toString() ?: "待定", color = Muted, fontSize = 12.sp, style = tabularTextStyle())
             }
-            Box(Modifier.width(3.dp).height(62.dp).background(accent, RoundedCornerShape(2.dp)))
+            Box(Modifier.width(3.dp).height(62.dp).background(accent, CircleShape))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(course.name, color = if (finished) Muted else Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(course.room.ifBlank { "地点待定" }, fontSize = 13.sp, color = Muted)
-                Text("第${course.firstPeriod}–${course.lastPeriod}节 · ${course.teacher.ifBlank { "教师待定" }}", fontSize = 11.sp, color = Muted)
+                Text(course.displayName, color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp)
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = PocketShapes.Compact) {
+                    Row(Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Place, null, Modifier.size(12.dp), tint = Muted)
+                        Text(course.room.ifBlank { "地点待定" }, fontSize = 12.sp, lineHeight = 16.sp,
+                            fontWeight = FontWeight.Medium, color = Muted, style = tabularTextStyle())
+                    }
+                }
+                Text("第${course.firstPeriod}–${course.lastPeriod}节 · ${course.teacher.ifBlank { "教师待定" }}", fontSize = 11.sp, color = Muted, style = tabularTextStyle())
             }
         }
     }
@@ -772,7 +900,7 @@ private fun WeekOverview(courses: List<CourseSlot>, week: Int, semester: Semeste
     val byDay = remember(groups, week) { (1..7).associateWith { overviewDay(groups, week, it) } }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("一周总览", Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text("一周总览", Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Medium)
             Text("非本周", fontSize = 12.sp, color = Muted, modifier = Modifier.padding(end = 6.dp))
             Switch(checked = showInactive, onCheckedChange = { showInactive = it })
         }
@@ -780,27 +908,27 @@ private fun WeekOverview(courses: List<CourseSlot>, week: Int, semester: Semeste
         // the final LazyColumn item and clamp its parent's vertical scroll position.
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (1..7).forEach { day ->
-                Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(15.dp), modifier = Modifier.width(124.dp)) {
+                PocketCard(modifier = Modifier.width(124.dp)) {
                     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("星期${DayNames[day - 1]}", fontWeight = FontWeight.Bold, color = Blue, fontSize = 13.sp)
+                        Text("星期${DayNames[day - 1]}", fontWeight = FontWeight.Medium, color = Blue, fontSize = 13.sp)
                         val slots = byDay.getValue(day)
                         val suspended = semester.dateOf(week, day) in suspendedDates
                         if (suspended || slots.active.isEmpty()) Text(if (suspended) "已设置停课" else "本周无课", fontSize = 12.sp, color = Muted, modifier = Modifier.padding(vertical = 12.dp))
                         (if (suspended) emptyList() else slots.active).forEach { group ->
                             val course = group.course
-                            Surface(onClick = { onSelect(group) }, color = SoftBlue, shape = RoundedCornerShape(10.dp)) {
+                            Surface(onClick = { onSelect(group) }, color = SoftBlue, shape = PocketShapes.Compact) {
                                 Column(Modifier.fillMaxWidth().padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(course.name, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Ink,
+                                    Text(course.displayName, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Ink,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text("${course.firstPeriod}–${course.lastPeriod}节", color = Blue, fontSize = 11.sp)
+                                    Text("${course.firstPeriod}–${course.lastPeriod}节", color = Blue, fontSize = 11.sp, style = tabularTextStyle())
                                     Text(overviewLocation(group, week), fontSize = 11.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                         if (showInactive && slots.inactive.isNotEmpty()) Surface(onClick = { inactiveDay = day },
-                            color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
+                            color = MaterialTheme.colorScheme.surfaceVariant, shape = PocketShapes.Compact) {
                             Text("非本周 ${slots.inactive.size} 门 ›", Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
-                                color = Muted, fontSize = 11.sp)
+                                color = Muted, fontSize = 11.sp, style = tabularTextStyle())
                         }
                     }
                 }
@@ -811,10 +939,10 @@ private fun WeekOverview(courses: List<CourseSlot>, week: Int, semester: Semeste
         AlertDialog(onDismissRequest = { inactiveDay = null }, title = { Text("星期${DayNames[day - 1]} · 非本周") }, text = {
             LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(byDay.getValue(day).inactive) { _, group ->
-                    Surface(onClick = { inactiveDay = null; onSelect(group) }, color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
+                    Surface(onClick = { inactiveDay = null; onSelect(group) }, color = MaterialTheme.colorScheme.surfaceVariant, shape = PocketShapes.Control) {
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(group.course.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text("第${group.course.firstPeriod}–${group.course.lastPeriod}节 · ${courseWeeksSummary(group.weeks)}", color = Muted, fontSize = 12.sp)
+                            Text(group.course.displayName, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("第${group.course.firstPeriod}–${group.course.lastPeriod}节 · ${courseWeeksSummary(group.weeks)}", color = Muted, fontSize = 12.sp, style = tabularTextStyle())
                             Text("查看各周地点与教师 ›", color = Blue, fontSize = 12.sp)
                         }
                     }
@@ -828,10 +956,11 @@ private fun WeekOverview(courses: List<CourseSlot>, week: Int, semester: Semeste
 private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Semester,
                         api: SchoolApi, canQuery: Boolean, today: LocalDate, previewMode: Boolean,
                         onLogin: () -> Unit, onSessionExpired: () -> Unit, onSettings: () -> Unit, settingsEnabled: Boolean) {
-    val context = LocalContext.current
+    val dark = LocalPocketDark.current
     val scope = rememberCoroutineScope()
     val snapshotDate = LocalDate.of(2026, 10, 22)
     var dateText by rememberSaveable { mutableStateOf(if (canQuery || !previewMode) today.toString() else snapshotDate.toString()) }
+    var selectingDate by rememberSaveable { mutableStateOf(false) }
     var previousToday by rememberSaveable { mutableStateOf(today.toString()) }
     var buildingName by rememberSaveable { mutableStateOf(StudyBuilding.MINGDE.name) }
     val building = StudyBuilding.valueOf(buildingName)
@@ -874,28 +1003,47 @@ private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Se
             } + "\n\n浅绿：无占用标记；蓝：有占用标记；灰：未知。\n无占用标记仅供自习选址参考，开放情况请以现场为准，学校状态含义仍待核对。\n\n查询需要有效的学校登录；已加载的结果不会自动更新。", onSettings, settingsEnabled)
       LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "rooms-filters", contentType = "filters") {
-            Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+            PocketCard(shape = PocketShapes.Hero) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StudyBuilding.entries.forEach { candidate ->
-                            FilterChip(selected = candidate == building, enabled = !querying,
+                            FilterChip(selected = candidate == building, shape = PocketShapes.Compact, enabled = !querying,
                                 onClick = { buildingName = candidate.name; queryError = null }, label = { Text(candidate.title) })
                         }
                     }
-                    OutlinedButton(enabled = !querying, onClick = {
-                        DatePickerDialog(context, { _, y, m, d -> dateText = LocalDate.of(y, m + 1, d).toString() },
-                            selectedDate.year, selectedDate.monthValue - 1, selectedDate.dayOfMonth).show()
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Outlined.DateRange, null, Modifier.size(17.dp)); Spacer(Modifier.width(8.dp)); Text(dateText)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PeriodMenu("开始节次", first, periods.filter { it.enabled }.map { it.number }, Modifier.weight(1f)) {
-                            first = it; if (last < it) last = it
+                    val colors = MaterialTheme.colorScheme
+                    val divider = colors.outlineVariant.copy(alpha = 0.65f)
+                    Surface(modifier = Modifier.fillMaxWidth(), color = colors.surfaceContainerLow, shape = PocketShapes.Control,
+                        border = BorderStroke(0.8.dp, divider)) {
+                        Column {
+                            val dateColor = if (querying) colors.onSurface.copy(alpha = 0.38f) else colors.onSurface
+                            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .clickable(enabled = !querying, role = Role.Button) { selectingDate = true }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.DateRange, null, Modifier.size(18.dp), tint = dateColor)
+                                Column(Modifier.weight(1f)) {
+                                    Text("查询日期", color = if (querying) dateColor else Muted, fontSize = 12.sp, lineHeight = 16.sp)
+                                    Text(dateText, color = dateColor, fontSize = 16.sp, lineHeight = 20.sp,
+                                        fontWeight = FontWeight.Medium, style = tabularTextStyle())
+                                }
+                                Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(20.dp), tint = dateColor)
+                            }
+                            HorizontalDivider(thickness = 0.5.dp, color = divider)
+                            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                PeriodMenu("开始节次", first, periods.filter { it.enabled }.map { it.number }, Modifier.weight(1f)) {
+                                    first = it; if (last < it) last = it
+                                }
+                                VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 8.dp), thickness = 0.5.dp, color = divider)
+                                PeriodMenu("结束节次", last, periods.filter { it.enabled && it.number >= first }.map { it.number }, Modifier.weight(1f)) { last = it }
+                            }
                         }
-                        PeriodMenu("结束节次", last, periods.filter { it.enabled && it.number >= first }.map { it.number }, Modifier.weight(1f)) { last = it }
                     }
-                    OutlinedTextField(value = search, onValueChange = { search = it }, singleLine = true,
-                        label = { Text("搜索已加载的教室") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = search, onValueChange = { search = it }, singleLine = true, shape = PocketShapes.Control,
+                        label = { Text("搜索已加载的教室") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(focusedContainerColor = colors.surfaceContainerLow,
+                            unfocusedContainerColor = colors.surfaceContainerLow, focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("只看无占用标记", modifier = Modifier.weight(1f), fontSize = 14.sp)
                         Switch(checked = noMarkOnly, onCheckedChange = { noMarkOnly = it })
@@ -916,7 +1064,9 @@ private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Se
                             }
                             finally { querying = false }
                         }
-                    }, modifier = Modifier.fillMaxWidth()) { Text(if (querying) "正在加载全楼教室…" else if (canQuery) "查询${building.title}" else "连接学校后查询") }
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = PocketShapes.Control) {
+                        Text(if (querying) "正在加载全楼教室…" else if (canQuery) "查询${building.title}" else "连接学校后查询")
+                    }
                     if (querying) LinearProgressIndicator(Modifier.fillMaxWidth())
                     queryError?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
                 }
@@ -924,9 +1074,9 @@ private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Se
         }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("第 $first–$last 节", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("第 $first–$last 节", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), style = tabularTextStyle())
                 Text(if (matchingResult != null) "已加载${matchingResult.rooms.size} / ${matchingResult.reportedTotal}条"
-                    else if (hasSnapshot) "样例${page.rows.size} / 全楼${page.total}条" else "尚未查询", fontSize = 12.sp, color = Muted)
+                    else if (hasSnapshot) "样例${page.rows.size} / 全楼${page.total}条" else "尚未查询", fontSize = 12.sp, color = Muted, style = tabularTextStyle())
             }
         }
         if (matchingResult == null && !hasSnapshot && !querying) item {
@@ -937,25 +1087,25 @@ private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Se
         }
         items(filtered, key = { it.code }, contentType = { "classroom" }) { room ->
             val state = remember(room, first, last) { room.status(first..last) }
-            Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp)) {
+            PocketCard() {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(room.name, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                            Text("${room.type} · ${room.seats?.let { "$it 座" } ?: "座位数未知"}", fontSize = 12.sp, color = Muted)
+                            Text(room.name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 24.sp)
+                            Text("${room.type} · ${room.seats?.let { "$it 座" } ?: "座位数未知"}", fontSize = 12.sp, color = Muted, style = tabularTextStyle())
                         }
                         StatusPill(state)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         (1..11).forEach { number ->
                             val color = when (room.status(number)) {
-                                Occupancy.NO_MARK -> if (isSystemInDarkTheme()) Color(0xFF1E463B) else Color(0xFFE2F3EE)
-                                Occupancy.OCCUPIED -> if (isSystemInDarkTheme()) Color(0xFF263D69) else Color(0xFFDBE4FC)
+                                Occupancy.NO_MARK -> if (dark) Color(0xFF1E463B) else Color(0xFFE2F3EE)
+                                Occupancy.OCCUPIED -> if (dark) Color(0xFF263D69) else Color(0xFFDBE4FC)
                                 Occupancy.UNKNOWN -> MaterialTheme.colorScheme.surfaceVariant
                             }
-                            Surface(color = color, shape = RoundedCornerShape(5.dp), modifier = Modifier.weight(1f)) {
+                            Surface(color = color, shape = PocketShapes.Compact, modifier = Modifier.weight(1f)) {
                                 Text(number.toString(), modifier = Modifier.padding(vertical = 6.dp), fontSize = 10.sp,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = Ink)
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = Ink, style = tabularTextStyle())
                             }
                         }
                     }
@@ -964,15 +1114,27 @@ private fun RoomsScreen(page: ClassroomPage, periods: List<Period>, semester: Se
         }
       }
     }
+    if (selectingDate) PocketDatePicker(selectedDate, today, onDismiss = { selectingDate = false }) {
+        dateText = it.toString()
+        selectingDate = false
+    }
 }
 
 @Composable
-private fun PeriodMenu(title: String, value: Int, options: List<Int>, modifier: Modifier, onSelect: (Int) -> Unit) {
+internal fun PeriodMenu(title: String, value: Int, options: List<Int>, modifier: Modifier, onSelect: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("$title $value") }
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { open = true }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Muted, fontSize = 12.sp, lineHeight = 16.sp)
+                Text("第 $value 节", fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, style = tabularTextStyle())
+            }
+            Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(20.dp), tint = Muted)
+        }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEach { number -> DropdownMenuItem(text = { Text("第 $number 节") }, onClick = { onSelect(number); open = false }) }
+            options.forEach { number -> DropdownMenuItem(text = { Text("第 $number 节", style = tabularTextStyle()) }, onClick = { onSelect(number); open = false }) }
         }
     }
 }
@@ -980,11 +1142,11 @@ private fun PeriodMenu(title: String, value: Int, options: List<Int>, modifier: 
 @Composable
 private fun StatusPill(state: Occupancy) {
     val (title, color) = when (state) {
-        Occupancy.NO_MARK -> "无占用标记" to if (isSystemInDarkTheme()) Color(0xFF79D6B4) else Color(0xFF217A62)
+        Occupancy.NO_MARK -> "无占用标记" to if (LocalPocketDark.current) Color(0xFF79D6B4) else Color(0xFF217A62)
         Occupancy.OCCUPIED -> "有占用标记" to Blue
         Occupancy.UNKNOWN -> "状态未知" to Muted
     }
-    Surface(color = color.copy(alpha = 0.09f), shape = RoundedCornerShape(8.dp)) {
+    Surface(color = color.copy(alpha = 0.09f), shape = PocketShapes.Compact) {
         Text(title, color = color, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
     }
 }
@@ -1006,32 +1168,25 @@ private fun ExamsScreen(exams: List<Exam>, now: LocalDateTime, schoolNotice: Str
       PageHeading("考试", schoolStatus(schoolNotice), schoolNotice ?: "虚构考试样例，非本人考试安排，未连接学校账号。", onSettings, settingsEnabled)
       LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (next != null) item(key = "next-exam", contentType = "next-exam") {
-            Surface(onClick = { selected = next }, color = Blue, shape = RoundedCornerShape(20.dp)) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text(if (schoolNotice == null) "下一场 · 示例" else "下一场考试", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f), fontSize = 12.sp)
-                    Text(next.name, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = MaterialTheme.colorScheme.onPrimary)
-                    Text("${next.date!!.format(ShortDate)}  ${next.start}–${next.end}", color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp)
-                    Text(next.room, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f), fontSize = 12.sp)
-                }
-            }
+            NextExamCard(next, now.toLocalDate(), demo = schoolNotice == null) { selected = next }
         }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("全部", "待考试", "待安排", "已结束").forEachIndexed { index, title ->
-                    FilterChip(selected = filter == index, onClick = { filter = index }, label = { Text(title) })
+                    FilterChip(selected = filter == index, shape = PocketShapes.Compact, onClick = { filter = index }, label = { Text(title) })
                 }
             }
         }
         if (filtered.isEmpty()) item { EmptyCard("没有这一类考试", if (schoolNotice == null) "这里只展示虚构样例，不代表学校尚未发布考试。" else "本次已排考试列表中没有匹配记录；其他考试可能尚未安排。", Icons.AutoMirrored.Outlined.List) }
         itemsIndexed(filtered, key = { index, exam -> "${exam.id}#$index" }, contentType = { _, _ -> "exam" }) { _, exam ->
-            Surface(onClick = { selected = exam }, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp)) {
+            PocketCard(onClick = { selected = exam }) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     val state = exam.state(now)
                     Text(when (state) { ExamState.UPCOMING -> "待考试"; ExamState.ONGOING -> "进行中"; ExamState.ENDED -> "已结束"; ExamState.UNARRANGED -> "时间待安排" },
                         color = if (state == ExamState.ENDED) Muted else Blue, fontSize = 12.sp)
-                    Text(exam.name, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text(examTimeLabel(exam), fontSize = 14.sp)
-                    Text("${exam.room.ifBlank { "考场待定" }} · 座位${exam.seat ?: "未提供"}", fontSize = 13.sp, color = Muted)
+                    Text(exam.name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 24.sp)
+                    Text(examTimeLabel(exam), fontSize = 14.sp, style = tabularTextStyle())
+                    Text("${exam.room.ifBlank { "考场待定" }} · 座位${exam.seat ?: "未提供"}", fontSize = 13.sp, color = Muted, style = tabularTextStyle())
                 }
             }
         }
@@ -1040,10 +1195,10 @@ private fun ExamsScreen(exams: List<Exam>, now: LocalDateTime, schoolNotice: Str
     selected?.let { exam ->
         AlertDialog(onDismissRequest = { selected = null }, title = { Text(exam.name) }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (exam.batch.isNotBlank()) Text(exam.batch)
-                Text(examTimeLabel(exam))
+                if (exam.batch.isNotBlank()) Text(exam.batch, style = tabularTextStyle())
+                Text(examTimeLabel(exam), style = tabularTextStyle())
                 Text("考场：${exam.room.ifBlank { "待定" }}")
-                Text("座位：${exam.seat ?: "未提供"}")
+                Text("座位：${exam.seat ?: "未提供"}", style = tabularTextStyle())
                 exam.note?.takeIf { it.isNotBlank() }?.let { Text(it, color = Muted) }
             }
         }, confirmButton = { TextButton(onClick = { selected = null }) { Text("完成") } })
@@ -1051,8 +1206,55 @@ private fun ExamsScreen(exams: List<Exam>, now: LocalDateTime, schoolNotice: Str
 }
 
 @Composable
+private fun NextExamCard(exam: Exam, today: LocalDate, demo: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val dark = LocalPocketDark.current
+    val immersive = LocalPocketImmersive.current
+    val foreground = if (dark || immersive) colors.onPrimaryContainer else colors.onPrimary
+    val badgeColor = if (dark) foreground.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
+    val examDate = exam.date!!
+    val daysLeft = ChronoUnit.DAYS.between(today, examDate)
+    PocketCard(
+        onClick = onClick,
+        shape = PocketShapes.Hero,
+        color = if (dark || immersive) colors.primaryContainer else colors.primary,
+        border = if (immersive) pocketCardBorder() else if (dark) BorderStroke(1.dp, colors.primary.copy(alpha = 0.35f)) else null,
+    ) {
+        Box(Modifier.fillMaxWidth().clipToBounds()) {
+            if (!dark) {
+                val stops = if (immersive) listOf(colors.primary.copy(alpha = 0.10f), Color.Transparent)
+                    else listOf(colors.primary, lerp(colors.primary, Color.Black, 0.16f))
+                Box(Modifier.matchParentSize().background(Brush.linearGradient(stops)))
+            }
+            Icon(Icons.Outlined.DateRange, contentDescription = null, tint = foreground.copy(alpha = 0.08f),
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 10.dp, y = 12.dp).size(88.dp).rotate(-12f))
+            Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (demo) "下一场考试 · 示例" else "下一场考试",
+                        modifier = Modifier.background(badgeColor, CircleShape).padding(horizontal = 8.dp, vertical = 3.dp),
+                        color = foreground, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(exam.name, color = foreground, fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${examDate.format(ShortDate)}  ${exam.start}–${exam.end}", color = foreground,
+                        fontSize = 14.sp, lineHeight = 20.sp, style = tabularTextStyle())
+                    Text("${exam.room.ifBlank { "考场待定" }} · 座位${exam.seat ?: "未提供"}", color = foreground,
+                        fontSize = 12.sp, lineHeight = 16.sp, style = tabularTextStyle())
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (daysLeft == 0L) "今天" else daysLeft.toString(), color = foreground, fontSize = 32.sp,
+                        lineHeight = 38.sp, fontWeight = FontWeight.Bold, style = tabularTextStyle())
+                    if (daysLeft > 0L) {
+                        Text("天后", color = foreground, fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EmptyCard(title: String, detail: String, icon: ImageVector) {
-    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+    PocketCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(25.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(icon, contentDescription = null, tint = Blue, modifier = Modifier.size(32.dp))

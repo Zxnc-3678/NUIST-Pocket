@@ -284,6 +284,7 @@ private fun SettingsEntryDivider() {
 
 @Composable private fun AppearanceControls(preferences: AppPreferences, wallpapers: WallpaperSession, opacity: TimetableOpacity, onChange: () -> Unit) {
     val context = LocalContext.current
+    val dark = LocalPocketDark.current
     val wallpaper = wallpapers.images
     var home by remember { mutableStateOf(preferences.homeTab) }
     var themeMode by remember { mutableStateOf(preferences.themeMode) }
@@ -362,7 +363,7 @@ private fun SettingsEntryDivider() {
         }
         SettingsSection(horizontalPadding = 8.dp) {
             Text("课表装潢", Modifier.padding(horizontal = 10.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            TimetableAppearancePreview(wallpaper, fade / 100f, blur, cardStyle, gridStyle, opacity.alpha)
+            TimetableAppearancePreview(wallpaper, fade / 100f, blur, cardStyle, gridStyle, opacity)
             Column(Modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("一键风格配方", fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -370,11 +371,12 @@ private fun SettingsEntryDivider() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TimetableRecipe.entries.forEach { recipe ->
                             val matches = cardStyle == recipe.style && gridStyle == recipe.grid &&
-                                opacity.alpha == recipe.opacity / 100f && fade == recipe.fade.toFloat() && blur == recipe.blur
+                                opacity.alpha == recipe.opacity / 100f && fade == recipe.fade.toFloat() && blur == recipe.blur &&
+                                (dark || recipe.style != CourseCardStyle.LiquidGlass || opacity.lightGlassAlpha == DEFAULT_LIGHT_GLASS_OPACITY / 100f)
                             PocketChoiceChip(selected = matches, onClick = {
                                 preferences.applyTimetableRecipe(recipe)
                                 cardStyle = recipe.style
-                                opacity.alpha = recipe.opacity / 100f
+                                opacity.reload()
                                 gridStyle = recipe.grid
                                 fade = recipe.fade.toFloat()
                                 blur = recipe.blur
@@ -415,7 +417,8 @@ private fun SettingsEntryDivider() {
                     Column {
                         TimetableOpacitySlider(opacity, cardStyle)
                         Text("壁纸淡化 ${fade.toInt()}%", fontSize = 13.sp, style = tabularTextStyle())
-                        Slider(value = fade, onValueChange = { fade = it }, valueRange = 20f..90f,
+                        Slider(value = fade, onValueChange = { fade = it },
+                            valueRange = WALLPAPER_FADE_RANGE.first.toFloat()..WALLPAPER_FADE_RANGE.last.toFloat(),
                             onValueChangeFinished = {
                                 fade = fade.toInt().toFloat()
                                 preferences.wallpaperFade = fade.toInt()

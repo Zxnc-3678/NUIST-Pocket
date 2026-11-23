@@ -33,6 +33,10 @@ internal enum class WallpaperScope(val title: String) {
     TIMETABLE("仅课程表"), IMMERSIVE("全局沉浸")
 }
 
+internal val WALLPAPER_FADE_RANGE = 0..85
+internal val LIGHT_GLASS_OPACITY_RANGE = 18..55
+internal const val DEFAULT_LIGHT_GLASS_OPACITY = 32
+
 internal enum class TimetableRecipe(
     val title: String, val style: CourseCardStyle, val opacity: Int,
     val grid: TimetableGridStyle, val fade: Int, val blur: Float,
@@ -95,8 +99,8 @@ class AppPreferences(private val context: Context) {
         get() = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", null) } ?: ThemeMode.SYSTEM
         set(value) { prefs.edit { putString("theme_mode", value.name) } }
     var wallpaperFade: Int
-        get() = prefs.getInt("wallpaper_fade", 45).coerceIn(20, 90)
-        set(value) { prefs.edit().putInt("wallpaper_fade", value.coerceIn(20, 90)).apply() }
+        get() = prefs.getInt("wallpaper_fade", 45).coerceIn(WALLPAPER_FADE_RANGE)
+        set(value) { prefs.edit().putInt("wallpaper_fade", value.coerceIn(WALLPAPER_FADE_RANGE)).apply() }
     internal var wallpaperScope: WallpaperScope
         get() = WallpaperScope.entries.firstOrNull { it.name == prefs.getString("wallpaper_scope", null) }
             ?: WallpaperScope.TIMETABLE
@@ -113,6 +117,9 @@ class AppPreferences(private val context: Context) {
     var timetableCardOpacity: Int
         get() = prefs.getInt("timetable_card_opacity", 90).coerceIn(50, 98)
         set(value) { prefs.edit { putInt("timetable_card_opacity", value.coerceIn(50, 98)) } }
+    internal var lightGlassOpacity: Int
+        get() = prefs.getInt("light_glass_opacity", DEFAULT_LIGHT_GLASS_OPACITY).coerceIn(LIGHT_GLASS_OPACITY_RANGE)
+        set(value) { prefs.edit { putInt("light_glass_opacity", value.coerceIn(LIGHT_GLASS_OPACITY_RANGE)) } }
     var courseCardStyle: CourseCardStyle
         get() = CourseCardStyle.entries.firstOrNull { it.name == prefs.getString("course_card_style", null) } ?: CourseCardStyle.ClassicBar
         set(value) { prefs.edit { putString("course_card_style", value.name) } }
@@ -126,6 +133,7 @@ class AppPreferences(private val context: Context) {
         prefs.edit {
             putString("course_card_style", recipe.style.name)
             putInt("timetable_card_opacity", recipe.opacity)
+            if (recipe.style == CourseCardStyle.LiquidGlass) putInt("light_glass_opacity", DEFAULT_LIGHT_GLASS_OPACITY)
             putString("timetable_grid_style", recipe.grid.name)
             putInt("wallpaper_fade", recipe.fade)
             putFloat("timetable_wallpaper_blur", recipe.blur)

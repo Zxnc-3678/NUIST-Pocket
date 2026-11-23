@@ -64,17 +64,31 @@ internal fun Modifier.timetableWallpaperBlur(radius: Float): Modifier =
 
 internal class TimetableOpacity(private val preferences: AppPreferences) {
     var alpha by mutableFloatStateOf(preferences.timetableCardOpacity / 100f)
+    var lightGlassAlpha by mutableFloatStateOf(preferences.lightGlassOpacity / 100f)
 
-    fun save() {
-        preferences.timetableCardOpacity = (alpha * 100).roundToInt()
+    fun save(lightGlass: Boolean) {
+        if (lightGlass) preferences.lightGlassOpacity = (lightGlassAlpha * 100).roundToInt()
+        else preferences.timetableCardOpacity = (alpha * 100).roundToInt()
+        reload()
+    }
+
+    fun reload() {
         alpha = preferences.timetableCardOpacity / 100f
+        lightGlassAlpha = preferences.lightGlassOpacity / 100f
+    }
+
+    fun surfaceAlpha(style: CourseCardStyle, dark: Boolean, hasWallpaper: Boolean): Float {
+        val value = if (hasWallpaper) alpha else 1f
+        return when {
+            style != CourseCardStyle.LiquidGlass -> value
+            !dark -> lightGlassAlpha
+            else -> darkGlassSurfaceAlpha(value)
+        }
     }
 }
 
-private fun glassSurfaceAlpha(opacity: Float, dark: Boolean): Float {
-    val progress = (opacity.coerceIn(0.50f, 0.98f) - 0.50f) / 0.48f
-    return if (dark) 0.12f + progress * 0.22f else 0.36f + progress * 0.14f
-}
+private fun darkGlassSurfaceAlpha(opacity: Float): Float =
+    0.12f + (opacity.coerceIn(0.50f, 0.98f) - 0.50f) / 0.48f * 0.22f
 
 @Composable
 private fun glassTextShadow(liquid: Boolean, dark: Boolean): Shadow? {
@@ -86,11 +100,18 @@ private fun glassTextShadow(liquid: Boolean, dark: Boolean): Shadow? {
 @Composable
 internal fun TimetableOpacitySlider(opacity: TimetableOpacity, style: CourseCardStyle) {
     val liquid = style == CourseCardStyle.LiquidGlass
-    val shownAlpha = if (liquid) glassSurfaceAlpha(opacity.alpha, LocalPocketDark.current) else opacity.alpha
+    val dark = LocalPocketDark.current
+    val lightGlass = liquid && !dark
+    val shownAlpha = opacity.surfaceAlpha(style, dark, hasWallpaper = true)
     Text("${if (liquid) "玻璃面不透明度" else "课块不透明度"} ${(shownAlpha * 100).roundToInt()}%",
         fontSize = 13.sp, style = tabularTextStyle())
-    Slider(value = opacity.alpha, onValueChange = { opacity.alpha = it }, valueRange = 0.50f..0.98f,
-        onValueChangeFinished = opacity::save)
+    val range = LIGHT_GLASS_OPACITY_RANGE
+    Slider(
+        value = if (lightGlass) opacity.lightGlassAlpha else opacity.alpha,
+        onValueChange = { if (lightGlass) opacity.lightGlassAlpha = it else opacity.alpha = it },
+        valueRange = if (lightGlass) range.first / 100f..range.last / 100f else 0.50f..0.98f,
+        onValueChangeFinished = { opacity.save(lightGlass) },
+    )
 }
 
 @Composable
@@ -99,7 +120,7 @@ internal fun BoxScope.TimetableWallpaper(wallpaper: Bitmap?, fade: Float, blur: 
         val image = remember(wallpaper) { wallpaper.asImageBitmap() }
         Box(Modifier.matchParentSize().then(modifier)) {
             Image(image, null, Modifier.matchParentSize().timetableWallpaperBlur(blur), contentScale = ContentScale.Crop)
-            Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background.copy(alpha = fade)))
+            if (fade > 0f) Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background.copy(alpha = fade)))
         }
     }
 }
@@ -143,8 +164,7 @@ private fun ColorScheme.courseTileColors(
         morandi -> lerp(accent, onSurface, if (dark) 0.48f else 0.66f)
         else -> onSurface
     }
-    val fillAlpha = if (style == CourseCardStyle.LiquidGlass) glassSurfaceAlpha(opacity, dark) else opacity
-    return CourseTileColors(fill.copy(alpha = fillAlpha), title, accent)
+    return CourseTileColors(fill.copy(alpha = opacity), title, accent)
 }
 
 private fun CourseCardStyle.tileBorder(dark: Boolean, tint: Color? = null): BorderStroke? = when (this) {
@@ -212,7 +232,7 @@ internal fun TimetableScreen(courses: List<CourseSlot>, periods: List<Period>, s
     val gridBorder = Modifier.timetableGridBorder(gridStyle, colors.outlineVariant)
     val courseBorder = remember(cardStyle, dark) { cardStyle.tileBorder(dark) }
     val liquid = cardStyle == CourseCardStyle.LiquidGlass
-    val fillOpacity = if (wallpaper == null) 1f else opacity.alpha
+    val fillOpacity = opacity.surfaceAlpha(cardStyle, dark, hasWallpaper = wallpaper != null)
     val immersive = immersiveViewport != null
     val railColor = colors.surface.copy(alpha = if (immersive) if (dark) 0.62f else 0.66f else 0.94f)
     val textShadow = glassTextShadow(liquid, dark)
@@ -378,10 +398,10 @@ internal fun TimetableScreen(courses: List<CourseSlot>, periods: List<Period>, s
 @Composable
 internal fun TimetableAppearancePreview(
     wallpaper: TimetableWallpaperImages?, fade: Float, blur: Float,
-    style: CourseCardStyle, grid: TimetableGridStyle, opacity: Float,
+    style: CourseCardStyle, grid: TimetableGridStyle, opacity: TimetableOpacity,
 ) {
     val colors = MaterialTheme.colorScheme
-    val fillAlpha = if (wallpaper == null) 1f else opacity
+    val fillAlpha = opacity.surfaceAlpha(style, LocalPocketDark.current, hasWallpaper = wallpaper != null)
     val glassViewport = remember { GlassViewport() }
     val glassPlacement = if (style == CourseCardStyle.LiquidGlass && wallpaper != null)
         Modifier.onPlaced { glassViewport.coordinates = it } else Modifier

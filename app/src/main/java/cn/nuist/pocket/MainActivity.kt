@@ -422,8 +422,9 @@ private fun PocketApp(navigation: PocketNavigation, preferences: AppPreferences,
         Brush.verticalGradient(listOf(Color.Transparent,
             if (dark) Color.Black.copy(alpha = 0.72f) else surfaceColor.copy(alpha = 0.85f)))
     }
-    val bodyScrim = remember(dark, canvasColor) {
-        val shade = canvasColor.copy(alpha = if (dark) 0.20f else 0.13f)
+    val bodyScrim = remember(dark, canvasColor, wallpaperFade) {
+        val strength = (wallpaperFade / 0.45f).coerceAtMost(1f)
+        val shade = canvasColor.copy(alpha = (if (dark) 0.20f else 0.13f) * strength)
         Brush.verticalGradient(0f to Color.Transparent, 0.15f to shade, 0.92f to shade, 1f to Color.Transparent)
     }
     val window = LocalActivity.current?.window

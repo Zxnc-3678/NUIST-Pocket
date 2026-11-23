@@ -35,7 +35,7 @@ internal fun ReleaseHighlights(onDismiss: () -> Unit) {
                 Text("NUIST Pocket 正式版焕新", fontSize = 13.sp, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
             }
             Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
-                ReleaseFeature(Icons.Outlined.Star, "壁纸铺满，四张轮换", "壁纸铺到状态栏和底栏，最多存四张随机换，液态玻璃和四套风格随手试。")
+                ReleaseFeature(Icons.Outlined.Star, "壁纸铺满，四张轮换", "通栏壁纸最多存四张，能随机换图、关闭淡化，液态玻璃和四套风格随手试。")
                 ReleaseFeature(Icons.Outlined.Edit, "课表长按就能改", "改简称、换颜色、停一节或跨周调课，长按空格加课，再同步也都在。")
                 ReleaseFeature(Icons.Outlined.CheckCircle, "待办跟着时间走", "定时待办和课程排进同一条时间轴，做完在日程里轻轻一勾。")
                 ReleaseFeature(Icons.Outlined.DateRange, "细节都带点弹性", "圆角抽屉、纱带滚轮，切页轻轻一淡，小组件的卡片也能一起调透。")
